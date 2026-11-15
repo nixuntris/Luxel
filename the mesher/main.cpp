@@ -58,10 +58,10 @@ class App {
 	int drd = 0;
 public:
 	App() {
-		//Implement HiZ for meshlets
+		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
 		//Optimize ray traversal
-		//Speed up chunk generation
-		//Fix the editing in meshlets
+		//Now only make far away chunks not actually get generated, since you can approximate the blocks (especially easy with the desert or mountains)
+		//Fix the editing for chunks that were skipped, as they have a problem of not properly being regenerated 
 		resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
 		resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
 
