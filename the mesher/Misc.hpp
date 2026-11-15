@@ -5,6 +5,42 @@
 #include "Anubis/AnubisMath.hpp"
 #include <sys/stat.h> 
 const int maxAnimationBatch = 128;
+const int mwx = 300;
+const int mwy = 32;
+const int mwz = 300;
+const int maxAnimationObjects = 1024;
+const std::vector<Color> palette = {
+	{0, 255, 0, 255},       // 0: GREEN GRASS
+	{128, 128, 128, 255},   // 1: GRAY
+	{153, 76, 0, 255},      // 2: BROWN
+	{92, 64, 51, 255},      // 3: DARKBROWN
+	{0, 117, 44, 255},      // 4: DARKGREEN
+	{255, 255, 255, 255},   // 5: WHITE
+	{0, 0, 128, 255},       // 6: DARKBLUE
+	{85, 158, 47, 255},     // 7: CUSTOM GREEN
+	{238, 214, 175, 255},   // 8: DESERT SAND
+	{ 97 ,112 ,44 ,255 },   // 9: OLIVE
+	{0, 121, 36, 255},      // 10: Darker Grass Shade
+	{0, 128, 49, 255},      // 11: Mid-Light Grass Variant
+	{2, 137, 53, 255},      // 12: Brightest Grass Highlight
+	{0, 110, 41, 255},      // 13: Medium Grass Blend
+	{0, 106, 39, 255},       // 14: Deepest Grass Shadow
+	{54, 34, 15, 255},      // 15
+	{92, 64, 51, 255},      // 16
+	{153, 77, 0, 255},      // 17
+	{238, 214, 175, 255},    // 18
+	{ 59,  87,  44, 255 },  // 10: Leaf Highlight (Replaced the neon yellow with a bright, natural leaf green)
+	{ 48,  71,  36, 255 },  // 11: Main Canopy Leaf Green (Replaced Warm Sand)
+	{ 40,  61,  30, 255 },  // 12: Medium Canopy Leaf Green (Replaced Light Camel)
+	{ 33,  51,  25, 255 },  // 13: Dark/Shadow Leaf Green (Replaced Peach/Tan)
+	{ 83,  62,  46, 255 },  // 14: Outer Branch Brown (Replaced Bright Olive)
+	{ 69,  50,  36, 255 },  // 15: Inner Heavy Branch Brown (Replaced Intense Lemon)
+	{ 56,  40,  29, 255 },  // 16: Deep Core Wood/Shadow Brown (Replaced Pale Yellow)
+	{ 53,  76,  40, 255 },  // 17: Alternative Leaf Green (Replaced Pear Green)
+	{ 45,  66,  33, 255 },   // 18: Alternative Leaf Green (Replaced Apple Green)
+	{255,255,255,255},
+	{0,0,0,255}
+};
 enum VOXEL_ENUM_NAMES {
 	GRASS = 1,   // palette[0]
 	STONE = 2,   // palette[1]

@@ -235,7 +235,7 @@ auto addRockVariants = [&](Structure* structure, int minSize, int maxSize) {
 
 	structure->variantCount = structure->variants.size();
 };
-auto addSphereVariants = [&](Structure* structure) {
+auto addSphereVariants = [&](Structure* structure, uint16_t type) {
 	const int minRadius = 0;
 	const int maxRadius = 16;
 
@@ -263,7 +263,7 @@ auto addSphereVariants = [&](Structure* structure) {
 		int radius = minRadius + v;
 
 		if (radius == 0) {
-			addVoxel(0, 0, 0, 20);
+			addVoxel(0, 0, 0, type);
 		}
 		else {
 			int r2 = radius * radius;
@@ -272,7 +272,7 @@ auto addSphereVariants = [&](Structure* structure) {
 					for (int z = -radius; z <= radius; z++) {
 						if (x * x + y * y + z * z <= r2) {
 							bool isShell = (x * x + y * y + z * z) > (radius - 1) * (radius - 1);
-							addVoxel(x, y, z, isShell ? 0 : 7);
+							addVoxel(x, y, z, isShell ? 0 : type);
 						}
 					}
 				}
@@ -298,19 +298,28 @@ auto addSphereVariants = [&](Structure* structure) {
 
 	structure->variantCount = structure->variants.size();
 };
+
+
 class StructureManager { //should store all the data but also handle the structure editor and viewer, which it currently doesn't 
 public:
 	int selectedStructure = 0;
-	Structure structureList[1024];
+	Structure structureList[maxAnimationObjects];
 	int structureCount = 0;
 	int choosenVariant = 0;
+	int animationUpdateTicks[maxAnimationObjects];
 	inline void Init() {
+		for (int i = 0; i < maxAnimationObjects; i++) {
+			animationUpdateTicks[i] = -1;
+		}
 		structureList[0].Create("tree");
 		addTreeVariants(&structureList[0], 24, 48);
+		animationUpdateTicks[0] = 150;
 		structureList[1].Create("rock");
 		addRockVariants(&structureList[1], 3, 5);
+		animationUpdateTicks[0] = -1;
 		structureList[2].Create("Sphere");
-		addSphereVariants(&structureList[2]);
+		animationUpdateTicks[2] = 4;
+		addSphereVariants(&structureList[2],20);
 		ImGui::SetNextWindowPos(ImVec2(40, 40), ImGuiCond_FirstUseEver);
 		ImGui::SetNextWindowSize(ImVec2(520, 480), ImGuiCond_FirstUseEver);
 		structureCount = 2;
@@ -391,6 +400,7 @@ struct AnimatedObject {
 	int objectType;
 	int oldAnimationTick;
 	bool animationFrameUpdated;
+	bool staticAnimation = false;
 	AnimatedObject()
 		: animationFrameTick(0), currentAnimationTick(0),
 		objectType(0), oldAnimationTick(0),

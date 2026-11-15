@@ -38,10 +38,6 @@ struct ChunkData {
 	int voxelCount = 0;
 	bool updated = false;
 };
-const int mwx = 300;
-const int mwy = 32;
-const int mwz = 300;
-
 struct World {
 	std::vector<AnimatedObject> animatedObjects;
 	bool array[mwx][mwz];

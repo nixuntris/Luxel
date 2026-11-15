@@ -19,11 +19,17 @@
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
 
-bool spawnAnimatedObjects = false;
+bool spawnAnimatedObjects = true;
 const int maxGPUBatch = 1024 * 1024;
 const int maxGrassCount = 1449303 * 2;
 const int treeAnimationUpdate = 150;
+const int sphereAnimationUpdate = 4;
 class App {
+	bool menuOpen = false;
+	bool releasedMenu = false;
+	int frame = 0;
+	bool preallocated = false;
+	bool generatedMesh = false;
 	Anubis::Window window;
 	Chunk* chunks;
 	ShaderManager shaders;
@@ -48,6 +54,7 @@ class App {
 	StructureManager structureManager;
 	int maxMeshUpdate = 2;
 	int renderDistance = 500;
+	int selectedColorIndex = 0; // Keep track of selection
 	int drd = 0;
 public:
 	App() {
@@ -93,6 +100,155 @@ public:
 		viewPort.shaders = &shaders;
 		structureManager.Init();
 		chunks = (Chunk*)MemAlloc(wx * wz * wy * sizeof(Chunk));
+	}
+	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs, int trianglesRendered) {
+		if (window.GetKeyPressed(KEY_K) && releasedMenu) {
+			menuOpen = !menuOpen;
+			releasedMenu = false;
+		}
+		if (!window.GetKeyPressed(KEY_K)) {
+			releasedMenu = true;
+		}
+		if (menuOpen) {
+			window.EnableCursor();
+			structureManager.EditorView();
+
+			float padding = 10.0f;
+
+			float resWidth = 250.0f;
+			ImGui::SetNextWindowPos(ImVec2(resolution.width - resWidth - padding, padding), ImGuiCond_Always);
+			ImGui::SetNextWindowSize(ImVec2(resWidth, 0), ImGuiCond_Always);
+
+			ImGui::Begin("Resolution Settings");
+			ImGui::Text("Select Screen Resolution:");
+			ImGui::Separator();
+
+			for (int i = 0; i < 5; ++i) {
+				std::string resLabel = std::string(graphicsSettings.resolutions[i].name) +
+					" (" + std::to_string(graphicsSettings.resolutions[i].width) +
+					"x" + std::to_string(graphicsSettings.resolutions[i].height) + ")";
+				if (currentResolutionWindow == i) {
+					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
+				}
+
+				if (ImGui::Button(resLabel.c_str(), ImVec2(-1, 0))) {
+					currentResolutionWindow = i;
+					window.Resize(graphicsSettings.resolutions[currentResolutionWindow].width, graphicsSettings.resolutions[currentResolutionWindow].height);
+					resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
+					resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
+					matProj = MatrixPerspective(90 * DEG2RAD, ((double)resolution.width / (double)resolution.height), 0.1, 100000.0);
+				}
+
+				if (currentResolutionWindow == i) {
+					ImGui::PopStyleColor();
+				}
+			}
+			ImGui::End();
+
+			float debugWidth = 250.0f;
+			ImGui::SetNextWindowPos(ImVec2(resolution.width - debugWidth - padding, padding + 180.0f), ImGuiCond_Always);
+			ImGui::SetNextWindowSize(ImVec2(debugWidth, resolution.height - 180.0f - (padding * 2)), ImGuiCond_Always);
+
+			ImGui::Begin("Debug Menu");
+
+			ImGui::SliderInt("Edit Size", &editSize, 1, 300);
+			ImGui::SliderInt("Render Distance", &renderDistance, 1, 1000);
+			ImGui::SliderFloat("Render Percentage", &viewPort.renderPercentage, 0.1f, 1.0f);
+			ImGui::SliderInt("Max Mesh Gen Per Frame", &maxMeshUpdate, 1, 40);
+			CustomToggle("Render grass", &graphicsSettings.grassRender);
+			CustomToggle("Secondary rays", &graphicsSettings.secondaryRays);
+			int oldSampleCount = sampleCount;
+			ImGui::SliderInt("Sample Count", &sampleCount, 1, 9);
+			if (oldSampleCount != sampleCount) {
+				for (int x = 0; x < wx; x++) {
+					for (int y = 0; y < wy; y++) {
+						for (int z = 0; z < wz; z++) {
+							int neighbourId = y * (wx * wz) + z * wx + x;
+							if (chunks[neighbourId].lod == 0 || chunks[neighbourId].lod == 3000 || chunks[neighbourId].lod == 32) continue;
+
+							int size = chunkSize / chunks[neighbourId].lod;
+
+							if (world.chunkData[neighbourId].voxelCount != 0 &&
+								!world.chunkData[neighbourId].skipped &&
+								!(world.chunkData[neighbourId].voxelCount >= chunkSize * chunkSize * chunkSize)) {
+
+								world.chunkData[neighbourId].probeMap.ClearTexture(0);
+							}
+
+						}
+					}
+				}
+			}
+			if (ImGui::Button("Recompile shaders")) {
+				shaders.Load();
+			}
+			CustomToggle("Render Clouds", &graphicsSettings.renderClouds);
+			CustomToggle("Raytrace/Rasterize", &viewPort.raytracePrimaryRays);
+
+			ImGui::Separator();
+			ImGui::TextColored(ImVec4(1, 1, 0, 1), "Performance Metrics:");
+			ImGui::Text("Grass: %.2f ms", grassTimeMs);
+			ImGui::Text("Raster: %.2f ms", rasterTimeMs);
+			ImGui::Text("Culling: %.2f ms", frustumTimeMs);
+			ImGui::Text("Secondary Rays: %.2f ms", secondaryRaysMs);
+			ImGui::Text("Total Triangles In Scene: %d", totalTriangleCount);
+			ImGui::Text("Rendered Triangles: %d ", trianglesRendered);
+			ImGui::Separator();
+
+			ImGui::End();
+			float paletteWidth = 200.0f;
+			float paletteHeight = 200.0f;
+			ImGui::SetNextWindowPos(ImVec2(padding, resolution.height - paletteHeight - padding), ImGuiCond_Always);
+			ImGui::SetNextWindowSize(ImVec2(paletteWidth, paletteHeight), ImGuiCond_Always);
+
+			ImGui::Begin("Color Palette");
+			if (ImGui::BeginChild("PaletteScroll", ImVec2(0, 100), true)) {
+				float buttonSize = 20.0f;
+				float windowWidth = ImGui::GetContentRegionAvail().x;
+				int buttonsPerRow = (int)(windowWidth / (buttonSize + ImGui::GetStyle().ItemSpacing.x));
+				for (int i = 0; i < palette.size(); ++i) {
+					ImVec4 color = {
+						palette[i].r / 255.0f,
+						palette[i].g / 255.0f,
+						palette[i].b / 255.0f,
+						palette[i].a / 255.0f
+					};
+					std::string label = "##" + std::to_string(i);
+					if (selectedColorIndex == i) {
+						ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 1));
+					}
+
+					if (ImGui::ColorButton(label.c_str(), color, 0, ImVec2(buttonSize, buttonSize))) {
+						selectedColorIndex = i + 1;
+					}
+
+					if (selectedColorIndex == i) ImGui::PopStyleColor();
+					if ((i + 1) % buttonsPerRow != 0) ImGui::SameLine();
+				}
+			}
+			ImGui::EndChild();
+
+			ImGui::Text("Selected Color Index: %d", selectedColorIndex);
+			ImGui::End();
+		}
+		else {
+			window.DisableCursor();
+		}
+		ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
+		ImGui::SetNextWindowBgAlpha(0.35f);
+		ImGui::Begin("##fps", nullptr,
+			ImGuiWindowFlags_NoDecoration |
+			ImGuiWindowFlags_AlwaysAutoResize |
+			ImGuiWindowFlags_NoSavedSettings |
+			ImGuiWindowFlags_NoFocusOnAppearing |
+			ImGuiWindowFlags_NoNav |
+			ImGuiWindowFlags_NoInputs);
+		ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+		ImGui::Text("Frame: %.2f ms", 1000.0f / ImGui::GetIO().Framerate);
+
+		ImGui::End();
+		ImGui::Render();
+		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 	}
 	inline void uploadChunkSSBO(uint32_t neighbourId) {
 		Anubis::SwitchShaderStage(shaders.display.shaderId);
@@ -578,9 +734,7 @@ public:
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(selectedType,&world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
 				};
-	//			for (int y = 0; y < gen.lowestChunkY; y++) {
-		//			chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(CAVES, &world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, false);
-			//	}
+				
 				int base = 0;
 				int cy = gen.highestChunkY - 2;
 				#define SET_VOXEL(x, y, z, block) do { \
@@ -667,7 +821,7 @@ public:
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					if (!world.chunkData[y * (wx * wz) + nz * wx + nx].skipped) {
 						chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
-						chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
+						if (!world.chunkData[y*(wx*wz)+nz*wx+nx].shortenedData) chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
 					}
 					
 				};
@@ -855,52 +1009,14 @@ public:
 		free(queue);
 	}
 	void Run(bool pregenerate=false) {
-		const std::vector<Color> palette = {
-					{0, 255, 0, 255},       // 0: GREEN GRASS
-					{128, 128, 128, 255},   // 1: GRAY
-					{153, 76, 0, 255},      // 2: BROWN
-					{92, 64, 51, 255},      // 3: DARKBROWN
-					{0, 117, 44, 255},      // 4: DARKGREEN
-					{255, 255, 255, 255},   // 5: WHITE
-					{0, 0, 128, 255},       // 6: DARKBLUE
-					{85, 158, 47, 255},     // 7: CUSTOM GREEN
-					{238, 214, 175, 255},   // 8: DESERT SAND
-					{ 97 ,112 ,44 ,255 },   // 9: OLIVE
-					{0, 121, 36, 255},      // 10: Darker Grass Shade
-					{0, 128, 49, 255},      // 11: Mid-Light Grass Variant
-					{2, 137, 53, 255},      // 12: Brightest Grass Highlight
-					{0, 110, 41, 255},      // 13: Medium Grass Blend
-					{0, 106, 39, 255},       // 14: Deepest Grass Shadow
-					{54, 34, 15, 255},      // 15
-					{92, 64, 51, 255},      // 16
-					{153, 77, 0, 255},      // 17
-					{238, 214, 175, 255},    // 18
-					{ 59,  87,  44, 255 },  // 10: Leaf Highlight (Replaced the neon yellow with a bright, natural leaf green)
-					{ 48,  71,  36, 255 },  // 11: Main Canopy Leaf Green (Replaced Warm Sand)
-					{ 40,  61,  30, 255 },  // 12: Medium Canopy Leaf Green (Replaced Light Camel)
-					{ 33,  51,  25, 255 },  // 13: Dark/Shadow Leaf Green (Replaced Peach/Tan)
-					{ 83,  62,  46, 255 },  // 14: Outer Branch Brown (Replaced Bright Olive)
-					{ 69,  50,  36, 255 },  // 15: Inner Heavy Branch Brown (Replaced Intense Lemon)
-					{ 56,  40,  29, 255 },  // 16: Deep Core Wood/Shadow Brown (Replaced Pale Yellow)
-					{ 53,  76,  40, 255 },  // 17: Alternative Leaf Green (Replaced Pear Green)
-					{ 45,  66,  33, 255 },   // 18: Alternative Leaf Green (Replaced Apple Green)
-					{255,255,255,255},
-					{0,0,0,255}
-		};
+		
 		std::vector<uint32_t> ColorPallete;
 		for (auto t : palette) {
 			ColorPallete.push_back(packRGBA8(t.r, t.g, t.b, t.a));
 		}
 		int offfr = 0;
-		int selectedColorIndex = 0; // Keep track of selection
 		Math::Vector2 oldMouse = window.GetMousePos();
-		std::cout << "Begun terrain generation \n";
 		const ImVec4 clearColor = { 0.1f, 0.1f, 0.12f, 1.0f };
-		bool menuOpen = false;
-		bool releasedMenu = false;
-		int frame = 0;
-		bool preallocated = false;
-		bool generatedMesh = false;
 		Anubis::SwitchShaderStage(shaders.display.shaderId);
 		shaders.display.CreateSSBO(3, sizeof(world.handle));
 		shaders.display.UpdateSSBO(9, 0, sizeof(int), 0);
@@ -973,23 +1089,27 @@ public:
 					objectQueue = 0;
 				}
 			}
-			if (objectQueue >= maxAnimationBatch) {
+
+			if (objectQueue >= 1) {
 				viewPort.RenderAnimatedObject(matView, objects, objectQueue, pos, forward, frame, ColorPallete, resolution, &structureManager);
 
 				objectQueue = 0;
 			}
+			for (int i = 0; i < structureManager.structureCount; i++) {
+				if (structureManager.animationUpdateTicks[i]!=-1) {
 
-			if (frame % treeAnimationUpdate==0) {
-				for (auto& t : world.animatedObjects) {
-					t.Update(frame, &structureManager);
-				}
+					if (frame % structureManager.animationUpdateTicks[i] == 0) {
+						for (auto& t : world.animatedObjects) {
+							if (t.objectType == i && !t.staticAnimation) t.Update(frame, &structureManager);
+						}
+						for (auto& t : world.animatedObjects) {
+							if (t.animationFrameUpdated && t.objectType == 2) {
+								viewPort.SetAnimatedObjectData(&t, &structureManager);
+								t.animationFrameUpdated = false;
+							}
 
-				for (auto& t : world.animatedObjects) {
-					if (t.animationFrameUpdated) {
-						viewPort.SetAnimatedObjectData(&t, &structureManager);
-						t.animationFrameUpdated = false;
+						}
 					}
-
 				}
 			}
 			
@@ -1076,7 +1196,14 @@ public:
 			if (!hitDeadEnd) {
 				rayCastPos = { pos.x + forward.x * 25,pos.y + forward.y * 25,pos.z + forward.z * 25 };
 			}
+			if (window.GetMouseButtonPressed(1)) {
+				std::cout << world.animatedObjects.size() << '\n';
+				AnimatedObject ao({ pos.x,pos.y,pos.z }, sphereAnimationUpdate, 2);
+				ao.staticAnimation = false;
+				world.animatedObjects.push_back(ao);
 
+
+			}
 			if (!viewPort.raytracePrimaryRays) {
 				
 				if (window.GetMouseButtonPressed(0) && !menuOpen && selectedColorIndex >= 0) {
@@ -1101,42 +1228,34 @@ public:
 								int id = y * (wx * wz) + z * wx + x;
 
 								if (id >= wx * wy * wz || id < 0) continue;
-								if (chunks[id].lod == 0 || chunks[id].voxelCount == 0 || world.chunkData[id].skipped) {
+								if (chunks[id].lod == 0 || chunks[id].voxelCount == 0 || world.chunkData[id].skipped || chunks[id].lod==32) {
+									std::cout << "Skipped or not generated\n";
 									world.chunkData[id].skipped = false;
+									
 									chunks[id].gx = x;
 									chunks[id].gy = y;
 									chunks[id].gz = z;
 									chunks[id].lod = 1;
 									chunks[id].size = chunkSize / chunks[id].lod;
 									world.chunkData[id].lod = 1;
-									world.chunkData[id].terrain = (uint16_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint16_t));
+									world.chunkData[id].compressedTerrain = (uint8_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint8_t));
+									world.chunkData[id].shortenedData = true;
 									int kx = int(fabs(pp.x)) % chunkSize;
 									int ky = int(fabs(pp.y)) % chunkSize;
 									int kz = int(fabs(pp.z)) % chunkSize;
 									int blockid = kx + ky * chunkSize + kz * chunkSize * chunkSize;
-									world.chunkData[id].terrain[blockid] = selectedColorIndex;
+									world.chunkData[id].compressedTerrain[blockid] = selectedColorIndex;
 									int size = chunkSize / chunks[id].lod;
-									chunks[id].Compress(&world.chunkData[id]);
 									world.chunkData[id].probeMap.Clear({ size,size,size });
 									world.chunkData[id].probeMap.Upload(0);
 									world.chunkData[id].probeMap.GetBindlessHandle();
 									world.handle.handle[id].lightStorageHandle = world.chunkData[id].probeMap.handle;
 
-									if (world.chunkData[id].shortenedData) {
-										world.chunkData[id].fluidByteMap.Clear({ size,size,size });
-										world.chunkData[id].fluidByteMap.Upload(world.chunkData[id].compressedTerrain);
-										world.chunkData[id].fluidByteMap.GetBindlessHandle();
-										world.handle.handle[id].handle = world.chunkData[id].fluidByteMap.handle;
-									}
-									else {
-										world.chunkData[id].fluidShortMap.Clear({ size,size,size });
-										uint16_t* tt = chunks[id].DecompressChunk(&world.chunkData[id]);
-										world.chunkData[id].fluidShortMap.Upload(tt);
-										free(tt);
-										world.chunkData[id].fluidShortMap.GetBindlessHandle();
-										world.handle.handle[id].handle = world.chunkData[id].fluidShortMap.handle;
-
-									}
+									world.chunkData[id].fluidByteMap.Clear({ size,size,size });
+									world.chunkData[id].fluidByteMap.Upload(world.chunkData[id].compressedTerrain);
+									world.chunkData[id].fluidByteMap.GetBindlessHandle();
+									world.handle.handle[id].handle = world.chunkData[id].fluidByteMap.handle;
+									
 									allocatedThisRun = true;
 									world.handle.handle[id].lod = world.chunkData[id].lod;
 									for (int dx = -1; dx <= 1; dx++) {
@@ -1196,7 +1315,9 @@ public:
 							int id = dy * (wx * wz) + dz * wx + dx;
 							if (chunks[id].lod != 0 && !chunks[id].hardwareRasterize) {
 								ChunkDeleteMeshData(dx, dy, dz);
-								softwareRaster[drd] = { dx,dy,dz };
+								softwareRaster[drd].x = chunks[id].gx;
+								softwareRaster[drd].y = chunks[id].gy;
+								softwareRaster[drd].z = chunks[id].gz;
 								drd++;
 								uploadChunkSSBO(id);
 
@@ -1240,6 +1361,9 @@ public:
 								chunks[id].size = chunkSize / chunks[id].lod;
 								world.chunkData[id].lod = 1;
 								world.chunkData[id].terrain = (uint16_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint16_t));
+								for (int i = 0; i < chunkSize * chunkSize * chunkSize; i++) {
+									world.chunkData[id].terrain[i] = 0;
+								}
 								int kx = int(fabs(pp.x)) % chunkSize;
 								int ky = int(fabs(pp.y)) % chunkSize;
 								int kz = int(fabs(pp.z)) % chunkSize;
@@ -1522,154 +1646,7 @@ public:
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
-
-			if (window.GetKeyPressed(KEY_K) && releasedMenu) {
-				menuOpen = !menuOpen;
-				releasedMenu = false;
-			}
-			if (!window.GetKeyPressed(KEY_K)) {
-				releasedMenu = true;
-			}
-			if (menuOpen) {
-				window.EnableCursor();
-				structureManager.EditorView();
-
-				float padding = 10.0f;
-
-				float resWidth = 250.0f;
-				ImGui::SetNextWindowPos(ImVec2(resolution.width - resWidth - padding, padding), ImGuiCond_Always);
-				ImGui::SetNextWindowSize(ImVec2(resWidth, 0), ImGuiCond_Always);
-
-				ImGui::Begin("Resolution Settings");
-				ImGui::Text("Select Screen Resolution:");
-				ImGui::Separator();
-
-				for (int i = 0; i < 5; ++i) {
-					std::string resLabel = std::string(graphicsSettings.resolutions[i].name) +
-						" (" + std::to_string(graphicsSettings.resolutions[i].width) +
-						"x" + std::to_string(graphicsSettings.resolutions[i].height) + ")";
-					if (currentResolutionWindow == i) {
-						ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.7f, 0.2f, 1.0f));
-					}
-
-					if (ImGui::Button(resLabel.c_str(), ImVec2(-1, 0))) {
-						currentResolutionWindow = i;
-						window.Resize(graphicsSettings.resolutions[currentResolutionWindow].width, graphicsSettings.resolutions[currentResolutionWindow].height);
-						resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
-						resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
-						matProj = MatrixPerspective(90 * DEG2RAD, ((double)resolution.width / (double)resolution.height), 0.1, 100000.0);
-					}
-
-					if (currentResolutionWindow == i) {
-						ImGui::PopStyleColor();
-					}
-				}
-				ImGui::End();
-
-				float debugWidth = 250.0f;
-				ImGui::SetNextWindowPos(ImVec2(resolution.width - debugWidth - padding, padding + 180.0f), ImGuiCond_Always);
-				ImGui::SetNextWindowSize(ImVec2(debugWidth, resolution.height - 180.0f - (padding * 2)), ImGuiCond_Always);
-
-				ImGui::Begin("Debug Menu");
-
-				ImGui::SliderInt("Edit Size", &editSize, 1, 300);
-				ImGui::SliderInt("Render Distance", &renderDistance, 1, 1000);
-				ImGui::SliderFloat("Render Percentage", &viewPort.renderPercentage, 0.1f, 1.0f);
-				ImGui::SliderInt("Max Mesh Gen Per Frame", &maxMeshUpdate, 1, 40);
-				CustomToggle("Render grass", &graphicsSettings.grassRender);
-				CustomToggle("Secondary rays", &graphicsSettings.secondaryRays);
-				int oldSampleCount = sampleCount;
-				ImGui::SliderInt("Sample Count", &sampleCount, 1, 9);
-				if (oldSampleCount != sampleCount) {
-					for (int x = 0; x < wx; x++) {
-						for (int y = 0; y < wy; y++) {
-							for (int z = 0; z < wz; z++) {
-								int neighbourId = y * (wx * wz) + z * wx + x;
-								if (chunks[neighbourId].lod == 0 || chunks[neighbourId].lod == 3000 || chunks[neighbourId].lod == 32) continue;
-
-								int size = chunkSize / chunks[neighbourId].lod;
-
-								if (world.chunkData[neighbourId].voxelCount != 0 &&
-									!world.chunkData[neighbourId].skipped &&
-									!(world.chunkData[neighbourId].voxelCount >= chunkSize * chunkSize * chunkSize)) {
-
-									world.chunkData[neighbourId].probeMap.ClearTexture(0);
-								}
-
-							}
-						}
-					}
-				}
-				if (ImGui::Button("Recompile shaders")) {
-					shaders.Load();
-				}
-				CustomToggle("Render Clouds", &graphicsSettings.renderClouds);
-				CustomToggle("Raytrace/Rasterize", &viewPort.raytracePrimaryRays);
-
-				ImGui::Separator();
-				ImGui::TextColored(ImVec4(1, 1, 0, 1), "Performance Metrics:");
-				ImGui::Text("Grass: %.2f ms", grassTimeMs);
-				ImGui::Text("Raster: %.2f ms", rasterTimeMs);
-				ImGui::Text("Culling: %.2f ms", frustumTimeMs);
-				ImGui::Text("Secondary Rays: %.2f ms", secondaryRaysMs);
-				ImGui::Text("Total Triangles In Scene: %d", totalTriangleCount);
-				ImGui::Text("Rendered Triangles: %d ", trianglesRendered);
-				ImGui::Separator();
-
-				ImGui::End();
-				float paletteWidth = 200.0f;
-				float paletteHeight = 200.0f;
-				ImGui::SetNextWindowPos(ImVec2(padding, resolution.height - paletteHeight - padding), ImGuiCond_Always);
-				ImGui::SetNextWindowSize(ImVec2(paletteWidth, paletteHeight), ImGuiCond_Always);
-
-				ImGui::Begin("Color Palette");
-				if (ImGui::BeginChild("PaletteScroll", ImVec2(0, 100), true)) {
-					float buttonSize = 20.0f;
-					float windowWidth = ImGui::GetContentRegionAvail().x;
-					int buttonsPerRow = (int)(windowWidth / (buttonSize + ImGui::GetStyle().ItemSpacing.x));
-					for (int i = 0; i < palette.size(); ++i) {
-						ImVec4 color = {
-							palette[i].r / 255.0f,
-							palette[i].g / 255.0f,
-							palette[i].b / 255.0f,
-							palette[i].a / 255.0f
-						};
-						std::string label = "##" + std::to_string(i);
-						if (selectedColorIndex == i) {
-							ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1, 1, 1, 1));
-						}
-
-						if (ImGui::ColorButton(label.c_str(), color, 0, ImVec2(buttonSize, buttonSize))) {
-							selectedColorIndex = i;
-						}
-
-						if (selectedColorIndex == i) ImGui::PopStyleColor();
-						if ((i + 1) % buttonsPerRow != 0) ImGui::SameLine();
-					}
-				}
-				ImGui::EndChild();
-
-				ImGui::Text("Selected Color Index: %d", selectedColorIndex);
-				ImGui::End();
-			}
-			else {
-				window.DisableCursor();
-			}
-			ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_Always);
-			ImGui::SetNextWindowBgAlpha(0.35f); 
-			ImGui::Begin("##fps", nullptr,
-				ImGuiWindowFlags_NoDecoration |
-				ImGuiWindowFlags_AlwaysAutoResize |
-				ImGuiWindowFlags_NoSavedSettings |
-				ImGuiWindowFlags_NoFocusOnAppearing |
-				ImGuiWindowFlags_NoNav |
-				ImGuiWindowFlags_NoInputs);     
-			ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
-			ImGui::Text("Frame: %.2f ms", 1000.0f / ImGui::GetIO().Framerate);
-
-			ImGui::End();
-			ImGui::Render();
-			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+			DebugMenu(grassTimeMs, frustumTimeMs, rasterTimeMs, secondaryRaysMs, trianglesRendered);
 			window.UpdateBuffer();
 
 			double elapsed = glfwGetTime() - frameStart;
