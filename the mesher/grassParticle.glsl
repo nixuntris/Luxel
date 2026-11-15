@@ -253,13 +253,6 @@ void main()
             
             float swayAmount = sway * normalizedHeight * normalizedHeight;
             vec3 position = base+vec3(swayAmount,float(y)/2.0,0);
-            ivec3 chunk = ivec3(position)/64;
-            if (handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].lod!=0) {
-
-            //uimage3D fluidMap = uimage3D(handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].handle);
-            
-            //imageStore(fluidMap,ivec3(mod(position,64))/handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].lod,uvec4(255));
-            }
             vec3 toC = position  - camPos;
             float distance = dot(toC, camForward);
             

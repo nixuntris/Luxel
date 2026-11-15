@@ -69,6 +69,8 @@ struct World {
 	}
 
 	uint16_t ReadVoxel(int x, int y, int z) {
+		if (x<0 || y<0 || z < 0 || x>wx * chunkSize || y>wy * chunkSize || z > wz * chunkSize) return 0;
+
 		int chunkX = x / chunkSize;
 		int chunkY = y / chunkSize;
 		int chunkZ = z / chunkSize;
@@ -77,6 +79,7 @@ struct World {
 		int localZ = z % chunkSize;
 		int voxelId = IDX(localX, localY, localZ, chunkSize);
 		int chunkId = chunkY * (wx * wz) + chunkZ * wx + chunkX;
+		if (chunkData[chunkId].skipped) return 0;
 		if (chunkData[chunkId].lod == 32) {
 			return 1;
 		}
@@ -92,8 +95,6 @@ struct World {
 		return 0;
 	}
 };
-long globalMemUsage = 0;
-long afterGlobalMemUsage = 0;
 enum CHUNKTYPE {
 	DESERT = 0,
 	SAVANNA = 1,

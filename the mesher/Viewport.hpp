@@ -193,4 +193,12 @@ struct ViewPort {
 		shaders->setAnimatedObjects.SetVector3({ object->position.x - data->map.size.x / 2,object->position.y - data->map.size.y / 2,object->position.z - data->map.size.z / 2 }, "renderPosition");
 		shaders->setAnimatedObjects.Use(data->map.size.x / 4, data->map.size.y / 4, data->map.size.z / 4);
 	}
+	const inline void HizBuilder(Math::IVector2 resolution, int frame) {
+
+		Anubis::SwitchShaderStage(shaders->hizBuilder.programID);
+		shaders->hizBuilder.SetInt(frame - 1, "frameIndex");
+		shaders->hizBuilder.SetInt(1, "buildLevel");
+
+		shaders->hizBuilder.Use(resolution.width / 32, 1, resolution.height / 32);
+	}
 };

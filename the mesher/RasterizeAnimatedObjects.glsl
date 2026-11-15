@@ -210,6 +210,7 @@ void main()
     } 
     float m15reproc = 1.0 / matView[3][3];
     vec3 baseP = renderPosition[batchId]+voxelId;
+
     int distance = int(dot(baseP-camPos, camForward));
 
     uint hash = hashVec3(baseP);

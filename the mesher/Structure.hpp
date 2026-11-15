@@ -74,14 +74,14 @@ struct Structure {
 		name = "";
 	}
 };
-auto addTreeVariants = [&](Structure* structure, int minTrunkHeight, int maxTrunkHeight) {
+auto addTreeVariants = [&](Structure* structure, int trunkHeight) {
 	const int firstTierHeight = 6;
 	const int tierSpacing = 4;
 
 	const int straight[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
 	const int diagonal[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
 
-	const int variantCount = 3;
+	const int variantCount = 4;
 	for (int v = 0; v < variantCount; v++) {
 		std::vector<uint16_t> rawValues;
 		std::vector<int> rawPositions;
@@ -100,9 +100,14 @@ auto addTreeVariants = [&](Structure* structure, int minTrunkHeight, int maxTrun
 			if (x > maxX) maxX = x;
 			if (y > maxY) maxY = y;
 			if (z > maxZ) maxZ = z;
-		};
+			};
 
-		int trunkHeight = minTrunkHeight + (maxTrunkHeight - minTrunkHeight) * v / (variantCount - 1);
+		float frameIndex = (float)v * 37.0f;
+		float phase = (float)v * 2.1f;
+		float sway =
+			sin(float(v)*0.5 * 0.003f) * 0.65f
+			+ sin(float(v) * 0.5 * 0.007f) * 0.20f
+			+ cos(float(v) * 0.5 * 0.0045f) * 0.10f;
 		int variation = v * 2;
 
 		for (int y = 0; y < trunkHeight; y++)
@@ -119,9 +124,14 @@ auto addTreeVariants = [&](Structure* structure, int minTrunkHeight, int maxTrun
 				int sideX = -dirZ, sideZ = dirX;
 
 				for (int step = 1; step <= length; step++) {
-					int x = dirX * step;
-					int z = dirZ * step;
-					int y = h - step / 4;
+					float stepSway = sway * sin(step * 0.9f + phase + tier * 0.5f);
+					int swayX = (int)roundf(sideX * stepSway + dirX * stepSway * 0.4f);
+					int swayZ = (int)roundf(sideZ * stepSway + dirZ * stepSway * 0.4f);
+					int swayY = (int)roundf(stepSway * 0.5f);
+
+					int x = dirX * step + swayX;
+					int z = dirZ * step + swayZ;
+					int y = h - step / 4 + swayY;
 
 					if (step <= length - 3) {
 						addVoxel(x, y, z, WOOD);
@@ -134,19 +144,39 @@ auto addTreeVariants = [&](Structure* structure, int minTrunkHeight, int maxTrun
 					}
 				}
 
-				addVoxel(dirX * length, h - length / 4 - 1, dirZ * length, LEAVES);
+				float tipSway = sway * sin(length * 0.9f + phase + tier * 0.5f);
+				addVoxel(dirX * length + (int)roundf(sideX * tipSway),
+					h - length / 4 - 1 + (int)roundf(tipSway * 0.5f),
+					dirZ * length + (int)roundf(sideZ * tipSway),
+					LEAVES);
 			}
 
-			for (int i = 0; i < 4; i++)
-				addVoxel(straight[i][0], h + 1, straight[i][1], LEAVES);
+			for (int i = 0; i < 4; i++) {
+				float topSway = sway * cos(h * 0.5f + phase + i * 0.8f);
+				addVoxel(straight[i][0] + (int)roundf(topSway),
+					h + 1 + (int)roundf(topSway * 0.4f),
+					straight[i][1] + (int)roundf(topSway * 0.6f),
+					LEAVES);
+			}
 		}
 
 		for (int i = 0; i < 4; i++) {
-			addVoxel(straight[i][0], trunkHeight - 2, straight[i][1], LEAVES);
-			addVoxel(straight[i][0], trunkHeight - 1, straight[i][1], LEAVES);
+			float capSway = sway * sin((trunkHeight - 2) * 0.7f + phase + i * 0.9f);
+			addVoxel(straight[i][0] + (int)roundf(capSway),
+				trunkHeight - 2 + (int)roundf(capSway * 0.3f),
+				straight[i][1] + (int)roundf(capSway * 0.5f), LEAVES);
+			addVoxel(straight[i][0] + (int)roundf(capSway * 0.7f),
+				trunkHeight - 1 + (int)roundf(capSway * 0.4f),
+				straight[i][1] + (int)roundf(capSway * 0.4f), LEAVES);
 		}
-		addVoxel(0, trunkHeight, 0, LEAVES);
-		addVoxel(0, trunkHeight + 1 + (variation % 2), 0, LEAVES);
+
+		float crownSway = sway * sin(trunkHeight * 0.6f + phase);
+		addVoxel((int)roundf(crownSway * 0.3f),
+			trunkHeight + (int)roundf(crownSway * 0.5f),
+			(int)roundf(crownSway * 0.3f), LEAVES);
+		addVoxel((int)roundf(crownSway * 0.5f),
+			trunkHeight + 1 + (variation % 2) + (int)roundf(crownSway * 0.6f),
+			(int)roundf(crownSway * 0.5f), LEAVES);
 
 		int voxelCount = (int)rawValues.size();
 		uint16_t* valArray = new uint16_t[voxelCount];
@@ -312,11 +342,11 @@ public:
 			animationUpdateTicks[i] = -1;
 		}
 		structureList[0].Create("tree");
-		addTreeVariants(&structureList[0], 24, 48);
-		animationUpdateTicks[0] = 150;
+		addTreeVariants(&structureList[0], 36);
+		animationUpdateTicks[0] = 7;
 		structureList[1].Create("rock");
 		addRockVariants(&structureList[1], 3, 5);
-		animationUpdateTicks[0] = -1;
+		animationUpdateTicks[1] = 4;
 		structureList[2].Create("Sphere");
 		animationUpdateTicks[2] = 4;
 		addSphereVariants(&structureList[2],20);
@@ -394,30 +424,30 @@ public:
 };
 
 struct AnimatedObject {
-	int animationFrameTick; //how many frames need to happen for the animation tick to update
 	int currentAnimationTick;
 	Math::Vector3 position;
+	Math::Vector3 velocity = { 0,0,0 } ;
 	int objectType;
-	int oldAnimationTick;
 	bool animationFrameUpdated;
+	int oldAnimationTick;
 	bool staticAnimation = false;
+	bool hasGravity = false;
 	AnimatedObject()
-		: animationFrameTick(0), currentAnimationTick(0),
-		objectType(0), oldAnimationTick(0),
+		: currentAnimationTick(0),
+		objectType(0),
 		animationFrameUpdated(false) {
 	}
-	AnimatedObject(Math::Vector3 position, int animationFrameTick, int object) {
+	AnimatedObject(Math::Vector3 position, int object) {
 		this->position = position;
-		this->animationFrameTick = animationFrameTick;
 		this->currentAnimationTick = 2;
 		this->oldAnimationTick = this->currentAnimationTick;
 		this->objectType = object;
+
 		animationFrameUpdated = true;
 	}
 	void Update(int frame, StructureManager *structureManager) {
 		this->oldAnimationTick = this->currentAnimationTick;
 		this->currentAnimationTick++;
-
 		if (currentAnimationTick >= structureManager->structureList[objectType].variants.size()) currentAnimationTick = 0;
 
 	}

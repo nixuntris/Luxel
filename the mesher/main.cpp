@@ -1,7 +1,3 @@
-//TODO:
-//IMPLEMENT VOXELIZATION FOR MODELS
-//ADD LOADING GLTF OBJECTS
-
 #include "raylib.h"
 #include "imgui_impl_glfw.h"
 #include "raymath.h"
@@ -19,43 +15,40 @@
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
 
-bool spawnAnimatedObjects = true;
 const int maxGPUBatch = 1024 * 1024;
 const int maxGrassCount = 1449303 * 2;
-const int treeAnimationUpdate = 150;
-const int sphereAnimationUpdate = 4;
+
+
 class App {
-	bool menuOpen = false;
-	bool releasedMenu = false;
-	int frame = 0;
-	bool preallocated = false;
-	bool generatedMesh = false;
 	Anubis::Window window;
 	Chunk* chunks;
 	ShaderManager shaders;
 	World world;
+	Settings graphicsSettings;
+	ViewPort viewPort;
+	ParticleRender particleRenderer;
+	StructureManager structureManager;
 	float* particles;
-	bool firstGen = true;
 	int totalTriangleCount;
 	Math::IVector2 resolution = { 3840,2160 };
 	int currentResolutionWindow = 3;
 	int grass = 0;
 	int totalMeshletCount = 0;
-	int editSize = 5;
 	Math::IVector3* softwareRaster;
-	Settings graphicsSettings;
 	float timeSpeed = 0.0004;
-	bool mainMenu = false;
 	int alreadySpawnedGrass = 0;
 	int sampleCount = 1;
-	ViewPort viewPort;
-	ParticleRender particleRenderer;
 	CHUNKTYPE selectedType = MOUNTAIN;
-	StructureManager structureManager;
 	int maxMeshUpdate = 2;
+	int editSize = 5;
 	int renderDistance = 500;
 	int selectedColorIndex = 0; // Keep track of selection
 	int drd = 0;
+	bool spawnAnimatedObjects = false;
+	bool menuOpen = false;
+	bool mainMenu = false;
+	bool releasedMenu = false;
+	int frame = 0;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -69,13 +62,12 @@ public:
 
 		window.Init(resolution.width,resolution.height,4,6,"software rasterization");
 		window.DisableCursor();
-		window.Resize(600, 800);
+		window.Resize(800, 1000);
 		
 		omp_set_num_threads(32);
 		viewPort.camera.target = { 0,1,0 };
 		SetRandomSeed(100);
 		shaders.Load();
-		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
 		int maxSSBOCount = 0;
 		glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxSSBOCount);
 		shaders.display.CreatePersistentSSBO(9, sizeof(int) * 2+1024*1024*2*sizeof(int));
@@ -89,11 +81,12 @@ public:
 
 		totalTriangleCount = 59259259/2;
 		totalMeshletCount = totalTriangleCount/64;
+		shaders.display.CreateSSBO(3, sizeof(world.handle));
+		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
 		shaders.display.CreatePersistentSSBO(5, (totalMeshletCount + 1) * sizeof(int) * 8);
 		shaders.display.CreatePersistentSSBO(2, totalTriangleCount * sizeof(uint32_t) * 8);
 		shaders.display.CreatePersistentSSBO(6, totalTriangleCount * sizeof(uint32_t) * 8);
 		shaders.display.CreatePersistentSSBO(7, totalMeshletCount * 6 * sizeof(float) * 8);
-		firstGen = false;
 		shaders.display.CreateSSBO(20, maxGrassCount * 3 * sizeof(float));
 		ImGui_ImplGlfw_InitForOpenGL(window.GetWindowHandle(), true);
 		ImGui_ImplOpenGL3_Init("#version 460");
@@ -165,9 +158,7 @@ public:
 						for (int z = 0; z < wz; z++) {
 							int neighbourId = y * (wx * wz) + z * wx + x;
 							if (chunks[neighbourId].lod == 0 || chunks[neighbourId].lod == 3000 || chunks[neighbourId].lod == 32) continue;
-
 							int size = chunkSize / chunks[neighbourId].lod;
-
 							if (world.chunkData[neighbourId].voxelCount != 0 &&
 								!world.chunkData[neighbourId].skipped &&
 								!(world.chunkData[neighbourId].voxelCount >= chunkSize * chunkSize * chunkSize)) {
@@ -410,10 +401,10 @@ public:
 		particles = (float*)MemAlloc(tt * 2 * 3 * sizeof(float));
 		
 		for (auto t : chunks[y * (wx * wz) + z * wx + x].grassList) {
-			for (int i = 0; i < GetRandomValue(1, 2); i++) {
-				particles[total * 3] = (t.x + float(GetRandomValue(-10, 10)) / 10.0f);
+			for (int i = 0; i < Math::GetRandomValueStreamlined(1, 2); i++) {
+				particles[total * 3] = (t.x + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
 				particles[total * 3 + 1] = (t.y + 1);
-				particles[total * 3 + 2] = (t.z + float(GetRandomValue(-10, 10)) / 10.0f);
+				particles[total * 3 + 2] = (t.z + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
 				grass++;
 				total++;
 			}
@@ -441,10 +432,10 @@ public:
 		return clicked;
 	}
 	inline uint32_t packRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-		return (static_cast<uint32_t>(r)) |
-			(static_cast<uint32_t>(g) << 8) |
-			(static_cast<uint32_t>(b) << 16) |
-			(static_cast<uint32_t>(a) << 24);
+		return (uint32_t(r)) |
+			(uint32_t(g) << 8) |
+			(uint32_t(b) << 16) |
+			(uint32_t(a) << 24);
 	}
 	void MainMenu() {
 		
@@ -563,6 +554,10 @@ public:
 				ImGui::Checkbox("Spawn Critters", &spawnCritters);
 				if (ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Currently it's just debug flies.\n");
+				}
+				ImGui::Checkbox("Spawn Animated Objects", &spawnAnimatedObjects);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Things like trees with changing animations, however they are debug and aren't necessarily what you expect.\n");
 				}
 				ImGui::Checkbox("Rasterize/Raytrace", &viewPort.raytracePrimaryRays);
 				ImGui::Unindent();
@@ -769,10 +764,10 @@ public:
 					} \
 				} while (0)
 
-				auto spawnTree = [&](int dx, int dy, int dz) {
-					
+				auto spawnObject = [&](int dx, int dy, int dz, int object) {
+
 					if (lod != 1 || !spawnAnimatedObjects) {
-						StructureDataHolder* tree = structureManager.structureList[0].GetRandomVariant();
+						StructureDataHolder* tree = structureManager.structureList[object].GetRandomVariant();
 						uint8_t* positions = tree->positions;
 						uint16_t* values = tree->values;
 						for (int i = 0; i < tree->voxelCount; i++) {
@@ -783,10 +778,10 @@ public:
 							uint16_t type = values[i];
 							SET_VOXEL(dx + x, dy + y, dz + z, type);
 						}
-						
+
 					}
 					else {
-						StructureDataHolder* tree = structureManager.structureList[0].GetSpecificVariant(2);
+						StructureDataHolder* tree = structureManager.structureList[object].GetRandomVariant();
 						uint8_t* positions = tree->positions;
 						uint16_t* values = tree->values;
 						for (int i = 0; i < tree->voxelCount; i++) {
@@ -797,11 +792,12 @@ public:
 							uint16_t type = values[i];
 							SET_VOXEL(dx + x, dy + y, dz + z, 254);
 						}
-						
-						AnimatedObject ao({ (float)dx + nx * 32,(float)dy + 32,(float)dz + nz * 32 }, treeAnimationUpdate, 0);
+
+						AnimatedObject ao({ (float)dx + nx * 32,(float)dy + 16,(float)dz + nz * 32 }, 0);
+
 						world.animatedObjects.push_back(ao);
 					}
-				};
+					};
 				if (selectedType == MOUNTAIN) {
 					for (int i = 0; i < Math::GetRandomValueStreamlinedFast(0, 4); i++) {
 						int dx = Math::GetRandomValueStreamlinedFast(10, 20);
@@ -809,10 +805,8 @@ public:
 						int baseY = gen.heightMap[dx + dz * chunkSize];
 						if (baseY > 250) continue;
 						
-						spawnTree(dx, baseY, dz);
-
+						spawnObject(dx, baseY, dz,0);
 					}
-
 				}
 				for (int y = 0; y < gen.lowestChunkY; y++) {
 					world.handle.handle[y * (wx * wz) + nz * wx + nx].lod = 32;
@@ -1008,6 +1002,51 @@ public:
 		}
 		free(queue);
 	}
+	void CheckAnimationState() {
+
+		for (int i = 0; i < structureManager.structureCount; i++) {
+			if (structureManager.animationUpdateTicks[i] != -1) {
+				if (frame % structureManager.animationUpdateTicks[i] == 0) {
+					for (auto& t : world.animatedObjects) {
+						if (t.objectType == i && !t.staticAnimation) {
+							t.Update(frame, &structureManager);
+						}
+					}
+					for (auto& t : world.animatedObjects) {
+						if (t.animationFrameUpdated && t.objectType == i) {
+							viewPort.SetAnimatedObjectData(&t, &structureManager);
+							t.animationFrameUpdated = false;
+						}
+
+					}
+				}
+			}
+		}
+	}
+	void CleanAnimationState() {
+
+		for (int i = 0; i < structureManager.structureCount; i++) {
+			if (structureManager.animationUpdateTicks[i] != -1) {
+				if (frame % structureManager.animationUpdateTicks[i] == 0) {
+					for (auto& t : world.animatedObjects) {
+						int x = t.position.x / chunkSize;
+						int y = t.position.y / chunkSize;
+						int z = t.position.z / chunkSize;
+
+						int chunkId = y * (wx * wz) + z * wx + x;
+						if (!world.chunkData[chunkId].skipped && world.chunkData[chunkId].lod != 32 && world.chunkData[chunkId].lod != 0) {
+							world.chunkData[chunkId].probeMap.ClearTexture(0);
+						}
+						if (t.animationFrameUpdated && t.objectType == i) {
+							viewPort.ClearAnimatedObjectData(&t, &structureManager);
+							t.animationFrameUpdated = false;
+						}
+
+					}
+				}
+			}
+		}
+	}
 	void Run(bool pregenerate=false) {
 		
 		std::vector<uint32_t> ColorPallete;
@@ -1017,8 +1056,6 @@ public:
 		int offfr = 0;
 		Math::Vector2 oldMouse = window.GetMousePos();
 		const ImVec4 clearColor = { 0.1f, 0.1f, 0.12f, 1.0f };
-		Anubis::SwitchShaderStage(shaders.display.shaderId);
-		shaders.display.CreateSSBO(3, sizeof(world.handle));
 		shaders.display.UpdateSSBO(9, 0, sizeof(int), 0);
 		Math::IVector2 oldChunkPos = { viewPort.camera.position.x / chunkSize,viewPort.camera.position.z / chunkSize };
 		if (pregenerate) PreGenerateFullDebug();
@@ -1041,16 +1078,7 @@ public:
 			window.Clear();
 			oldMouse = window.GetMousePos();
 			Matrix matView = MatrixLookAt(pos, tag, { 0,1,0 });
-
-			Anubis::SwitchShaderStage(shaders.hizBuilder.programID);
-			shaders.hizBuilder.SetInt(frame-1, "frameIndex");
-			shaders.hizBuilder.SetInt(1, "buildLevel");
-			shaders.hizBuilder.SetVector3({ pos.x,pos.y,pos.z }, "camPos");
-			shaders.hizBuilder.SetVector3({ forward.x,forward.y,forward.z }, "camForward");
-			shaders.hizBuilder.SetMatrix({ matView.m0,matView.m1,matView.m2,matView.m3,matView.m4,matView.m5,matView.m6,matView.m7,matView.m8,matView.m9,matView.m10,matView.m11,matView.m12,matView.m13,matView.m14,matView.m15 }, "matView");
-			shaders.hizBuilder.SetMatrix({ matProj.m0,matProj.m1,matProj.m2,matProj.m3,matProj.m4,matProj.m5,matProj.m6,matProj.m7,matProj.m8,matProj.m9,matProj.m10,matProj.m11,matProj.m12,matProj.m13,matProj.m14,matProj.m15 }, "matProj");
-
-			shaders.hizBuilder.Use(resolution.width / 32, 1, resolution.height / 32);
+			viewPort.HizBuilder(resolution, frame);
 			int renderedChunks = 0;
 			Anubis::GpuTimer frustum;
 			Anubis::GpuTimer timerFrustum;
@@ -1090,29 +1118,12 @@ public:
 				}
 			}
 
-			if (objectQueue >= 1) {
+			if (objectQueue >= 0) {
 				viewPort.RenderAnimatedObject(matView, objects, objectQueue, pos, forward, frame, ColorPallete, resolution, &structureManager);
 
 				objectQueue = 0;
 			}
-			for (int i = 0; i < structureManager.structureCount; i++) {
-				if (structureManager.animationUpdateTicks[i]!=-1) {
-
-					if (frame % structureManager.animationUpdateTicks[i] == 0) {
-						for (auto& t : world.animatedObjects) {
-							if (t.objectType == i && !t.staticAnimation) t.Update(frame, &structureManager);
-						}
-						for (auto& t : world.animatedObjects) {
-							if (t.animationFrameUpdated && t.objectType == 2) {
-								viewPort.SetAnimatedObjectData(&t, &structureManager);
-								t.animationFrameUpdated = false;
-							}
-
-						}
-					}
-				}
-			}
-			
+			CheckAnimationState();
 			Anubis::GpuTimer grassT;
 			grassT.Start();
 			if (graphicsSettings.grassRender && grass > 0) {
@@ -1128,13 +1139,7 @@ public:
 			if (graphicsSettings.renderClouds) {
 				viewPort.RenderClouds(matView, frame, pos, forward, resolution, timeSpeed);
 			}
-			if (frame % treeAnimationUpdate == 0) {
-		//		for (auto& t : world.animatedObjects) {
-	//	//			viewPort.ClearAnimatedObjectData(&t, &structureManager);
-	//			}
-
-				//probe clearing is needed
-			}
+			CleanAnimationState();
 			auto grassTimeMs = grassT.Stop();
 			START_TIMER(physicsAllocator)
 			
@@ -1197,8 +1202,8 @@ public:
 				rayCastPos = { pos.x + forward.x * 25,pos.y + forward.y * 25,pos.z + forward.z * 25 };
 			}
 			if (window.GetMouseButtonPressed(1)) {
-				std::cout << world.animatedObjects.size() << '\n';
-				AnimatedObject ao({ pos.x,pos.y,pos.z }, sphereAnimationUpdate, 2);
+				AnimatedObject ao({ pos.x,pos.y,pos.z }, 2);
+				ao.hasGravity = true;
 				ao.staticAnimation = false;
 				world.animatedObjects.push_back(ao);
 
@@ -1229,7 +1234,6 @@ public:
 
 								if (id >= wx * wy * wz || id < 0) continue;
 								if (chunks[id].lod == 0 || chunks[id].voxelCount == 0 || world.chunkData[id].skipped || chunks[id].lod==32) {
-									std::cout << "Skipped or not generated\n";
 									world.chunkData[id].skipped = false;
 									
 									chunks[id].gx = x;
@@ -1499,19 +1503,23 @@ public:
 				GenerationData gen;
 				gen.GenerateMountains(nx, nz);
 				gen.highestChunkY += 2;
-
+				
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
-					chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(selectedType, &world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
-					
+					int id = y * (wx * wz) + nz * wx + nx;
+					chunks[id].GeneratePerType(selectedType, &world.chunkData[id], gen, nx, y, nz, lod, grass);
 				};
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
-					if (!world.chunkData[y * (wx * wz) + nz * wx + nx].skipped) {
-						chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
-						chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
+					int id = y * (wx * wz) + nz * wx + nx;
+					if (!world.chunkData[id].skipped) {
+
+						chunks[id].GenerateLod(&world.chunkData[id], nx, y, nz);
+						if (!world.chunkData[id].shortenedData) {
+							chunks[id].Compress(&world.chunkData[id]);
+						}
 					}
 					else {
-						world.handle.handle[y * (wx * wz) + nz * wx + nx].lod = 32;
-						world.handle.handle[y * (wx * wz) + nz * wx + nx].filled = 1;
+						world.handle.handle[id].lod = 32;
+						world.handle.handle[id].filled = 1;
 					}
 				};
 				free(gen.heightMap);
