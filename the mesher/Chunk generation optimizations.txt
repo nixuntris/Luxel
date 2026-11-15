@@ -1,0 +1,39 @@
+Hello, I've been continuing the work on my voxel engine. I've decided to name it luxel. I will refer to it as such, or as just "the engine."
+In this devlog I wanted to talk about GPU meshing and terrain generation optimizations, along with a new object manager.
+
+New Goals
+Previously, the engine lacked a clear goal or even a purpose. I wanted to make something akin to what John Lin worked on: a sandbox voxel game with pretty visuals and sophisticated physics. I realized that's not much of a goal or a direction — just a vague idea.
+After some conversations with a friend, I realized what I want to do: testing and implementing different techniques for rendering or physics, not necessarily just making a game.
+
+Clean Up
+The engine's code was very messy and needed cleaning up. Due to it using older code I wrote 2 years ago, when I had nearly no graphics programming experience, it was very messy and hard to maintain. Therefore, I threw out nearly 60% of the abstraction code and wrote a bunch of new code for it.
+It's still using OpenGL, which is becoming a bit of an issue, as I want to start experimenting with new features like hardware raytracing — however, it's in a much better state. A lot of old code piled up, such as a barely working FBO implementation or many hardcoded data structures that were entirely useless or from older projects. It also lacked support for other features or lacked the more optimal function declarations. Many of them were thread-unsafe or thread-locking, causing more slowdowns than needed.
+One of those was the random number generation: I used rand() from the standard C library, which isn't the best case. Some of the features I use simply require a cheap hash and a seed, like grass distribution.
+There are many possible improvements, like switching to Vulkan or even adding different implementations per platform, as currently many are x86-64-specific, where ARM is becoming a viable platform for many.
+
+Data Compression
+There are now 3 ways I store data — uncompressed, shortened, and paletted. By shortened, I mean a voxel chunk that doesn't have a single voxel whose ID is above 255. It can be pretty common in many cases (especially with the terrain I have), so I decided to use it. Paletted is just chunked palettes, and uncompressed is a uint16_t. The GPU doesn't store palettes; it's either shortened or uncompressed. For now it's not a problem, but I might add palettes for them as well.
+The pipeline looked like this:
+Generate the chunk
+Compress the chunk
+Generate the LOD
+It used to take around 6 seconds to generate a 100×32×100 world. However, I changed it so that the first step can skip compression. It directly sets the shortened flag or can build a palette. It made the generation time go down to 3.5s.
+I am a bit iffy on this change, since I wanted to keep the generation with as few flags or hardcoded rules as possible, but I realized that to push faster speeds I cannot keep it naive anymore.
+
+General Chunk Generation Optimizations
+Referring to what I wrote earlier, a lot of the slowdowns were in thread-locking functions, like random number generation. I used a singular inlined function that was very naive. Now I have 2 — the hash function for fast generation and a thread-local number generator from the C++ standard library.
+Chunks get skipped from generation if they are not in an area of activity (for example, the mountains) below or above the terrain shape. I also batch data uploads to the GPU, instead of a single call per chunk (it was very stupid).
+Note: In the future I want to approximate the data — for example, LOD level 8 shouldn't generate any data at all. It can approximate that near the base layer it's all grass, or the top would be just grass leaves.
+
+Mesh Generation Optimizations
+
+The meshing algorithm used to run on the CPU, but I realized it's become a bottleneck in my engine. It would have been very difficult to optimize it further, and a different path became obvious to me — GPU meshing. Since this task is very easy to parallelize, and I already uploaded all the volumetric data to the GPU, I decided to give it a shot.
+It was very similar to what I did on the CPU. The speed difference was about 8× faster. However, if you specifically queue up a really small amount of chunks to get meshed, it can be just as slow as the CPU implementation.
+
+Object and Structure Management
+
+I now pregenerate a structure procedurally — each tree has a defined lambda for itself; tree height, trunk size, and branch range can all be modified. Each permutation of a structure stores its data, dimensions (as they differ), and the uploaded data to the GPU in a struct called StructureDataHolder. The permutations are held by a struct Structure, which stores variantCount, the name, and a list of the variants.
+The terrain generator per chunk volume chooses the amount of trees and position to spawn, choosing a variant at random. Each structure is stored as an animated object, which means their full data isn't actually appended to the voxel volume. They use 2 special voxel flags: 254 and 255.
+A voxel of ID 254 is a completely empty voxel; all it does is force the chunk manager to allocate the chunk and not skip it, for potential future updates. 255 is a light volume voxel; it doesn't serve any function outside of blocking ray lights from passing. Both don't get raytraced or meshed by primary rays.
+All structures store the animation frame update, which basically means trees get updated every 150 frames, for example. I batch them into sets of 128 and rasterize them like that.
+
