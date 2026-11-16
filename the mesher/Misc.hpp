@@ -19,7 +19,7 @@ const std::vector<Color> palette = {
 	{0, 0, 128, 255},       // 6: DARKBLUE
 	{85, 158, 47, 255},     // 7: CUSTOM GREEN
 	{238, 214, 175, 255},   // 8: DESERT SAND
-	{ 97 ,112 ,44 ,255 },   // 9: OLIVE
+	{ 28,163,236,255 },   // 9: BLUE
 	{0, 121, 36, 255},      // 10: Darker Grass Shade
 	{0, 128, 49, 255},      // 11: Mid-Light Grass Variant
 	{2, 137, 53, 255},      // 12: Brightest Grass Highlight

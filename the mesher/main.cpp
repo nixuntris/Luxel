@@ -18,7 +18,6 @@
 const int maxGPUBatch = 1024 * 1024;
 const int maxGrassCount = 1449303 * 2;
 
-
 class App {
 	Anubis::Window window;
 	Chunk* chunks;
@@ -824,6 +823,26 @@ public:
 				free(gen.heightMap);
 			}
 		}
+		int fluidChunks = 0;
+		for (int nx = 0; nx < wx; nx++) {
+			for (int nz = 0; nz < wz; nz++) {
+				if (world.setLod[nx][nz] == 1) {
+					for (int ny = 0; ny < wy; ny++) {
+						int id = ny * (wx * wz) + nz * wx + nx;
+						if (world.chunkData[id].lod != 32) { //since lod 32 works as a fully filled chunk
+							world.chunkData[id].waterMap.Clear({ 32 / 8,32,32 });
+							world.chunkData[id].waterMap.Upload(0);
+							world.chunkData[id].waterMap.GetBindlessHandle();
+							world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
+							fluidChunks++;
+						}
+						
+					}
+				}
+
+			}
+		}
+		std::cout << "Chunks that have fluids: " << fluidChunks << '\n';
 		END_TIMER(data_gen)
 		START_TIMER(upload)
 		int maxCount = wx * wy * wz;

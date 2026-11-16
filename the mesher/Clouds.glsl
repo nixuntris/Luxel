@@ -39,10 +39,13 @@ uniform int   wx, wy, wz;
 uniform int   frameIndex;
 
 vec3 sunDir = normalize(vec3(0.0, 1.0, 0.0));
+
 struct Region {
     uvec2 handle;
     uvec2 probeHandle;
+    uvec2 fluidHandle;
     int lod;
+    int filled;
 };
 layout(std430, binding = 3) buffer BitHandles {
     Region handles[];

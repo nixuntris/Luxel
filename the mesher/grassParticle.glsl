@@ -166,15 +166,6 @@ bool TriangleInFrustum(vec3 v1, vec3 v2, vec3 v3) {
 	return true;
 }
 
-struct Region {
-    uvec2 handle;
-    uvec2 probeHandle;
-    int lod;
-    int filled;
-};
-layout(std430, binding = 3) buffer BitHandles {
-    Region handles[];
-};
 
 uint hashVec3(vec3 v) {
     uint x = uint(v.x);
@@ -290,12 +281,6 @@ void main()
         
         vec3 position = base+vec3(swayAmount,float(y)/2.0,0);
                     ivec3 chunk = ivec3(position)/64;
-        if (handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].lod!=0) {
-            //uimage3D fluidMap = uimage3D(handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].handle);
-            
-            //imageStore(fluidMap,ivec3(mod(position,64))/handles[chunk.y * (wx * wz) + chunk.z * wx + chunk.x].lod,uvec4(255));
-
-        }
         
         vec3 v1 = position - scaledRight - scaledUp;
         vec3 v2 = position + scaledRight - scaledUp;

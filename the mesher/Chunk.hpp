@@ -30,6 +30,7 @@ struct ChunkData {
 	Anubis::GPUONLYShortMap fluidShortMap;
 	Anubis::GPUONLYByteMap fluidByteMap;
 	Anubis::GPUONLYByteMap probeMap;
+	Anubis::GPUONLYByteMap waterMap;
 	uint16_t* terrain;
 	uint16_t* palette;
 	int paletteSize;
@@ -46,6 +47,7 @@ struct World {
 		struct Region {
 			GLuint64 handle = 0;
 			GLuint64 lightStorageHandle = 0;
+			GLuint64 waterHandle;
 			int lod;
 			int filled; 
 		};

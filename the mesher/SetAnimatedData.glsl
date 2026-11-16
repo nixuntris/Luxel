@@ -9,9 +9,11 @@ uniform int wx;
 uniform int wy;
 uniform int wz;
 
+
 struct Region {
     uvec2 handle;
     uvec2 probeHandle;
+    uvec2 fluidHandle;
     int lod;
     int filled;
 };

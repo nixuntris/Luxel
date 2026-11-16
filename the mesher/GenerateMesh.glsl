@@ -35,6 +35,7 @@ layout(std430, binding = 7) buffer AABBBuffer {
 struct Region {
     uvec2 handle;
     uvec2 probeHandle;
+    uvec2 fluidHandle;
     int lod;
     int filled;
 };
