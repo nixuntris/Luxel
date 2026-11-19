@@ -173,6 +173,9 @@
     <None Include="ClearAnimatedData.glsl">
       <Filter>Source Files\Shaders\Raytracing\Illumination</Filter>
     </None>
+    <None Include="SimulateObjects.glsl">
+      <Filter>Source Files\Shaders\Rasterizer\Physics</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="caves.txt">

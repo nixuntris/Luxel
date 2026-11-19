@@ -170,6 +170,7 @@
     <None Include="HizBuilder.glsl" />
     <None Include="SecondaryRays.glsl" />
     <None Include="SetAnimatedData.glsl" />
+    <None Include="SimulateObjects.glsl" />
     <None Include="tree.voxobj" />
     <None Include="ver.vs" />
   </ItemGroup>

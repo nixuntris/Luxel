@@ -12,7 +12,7 @@ struct ViewPort {
 	Anubis::Camera camera;
 	float planeDs[6];
 	bool raytracePrimaryRays = false;
-	float renderPercentage = 0.8f;
+	float renderPercentage = 1;
 	void Display(int frame, int wHeight) {
 		shaders->display.Use();
 		shaders->display.SetInt(frame, "frameIndex");

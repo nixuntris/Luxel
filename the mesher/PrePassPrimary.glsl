@@ -45,7 +45,32 @@ uint readVoxelData(ivec3 pos, inout int lod) {
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
     int regionLod = handles[index].lod;
     lod = regionLod;
+    
+    uvec2 fluidhandle = handles[index].fluidHandle;
+    if (fluidhandle!=uvec2(0)) {
+        
+        uimage3D fluidMap = uimage3D(fluidhandle);
+        ivec3 lp = (pos & (chunkSize - 1));
+        int nibbleIndex = lp.x & 1;  
+        lp.x /= 2;
+        uint r = 0u;
+        bool pending = true;
+        while (anyInvocationARB(pending)) {
+            if (pending) {
+                uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x), readFirstInvocationARB(fluidhandle.y));
+                if (fluidhandle == cur) {
+                    r = imageLoad(uimage3D(cur), lp).x;
+                    pending = false;
+                }
+            }
+        }
+        uint byteIndex  = lp.x;        
+        uint shift = nibbleIndex*4;
+        uint nibble  = (r >> shift) & 0x0F;
+        if (nibble!=0) return 7;
+    }
     if (regionLod==32) return handles[index].filled; //the problem is here
+    
     uvec2 handle = handles[index].handle;
     if (handle != uvec2(0)) {
         uimage3D fluidMap = uimage3D(handle);

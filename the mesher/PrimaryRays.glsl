@@ -35,6 +35,7 @@ uniform vec3 camPos;
 uniform mat4 matView;
 uniform mat4 matProj;
 uniform int frameIndex;
+
 uint readVoxelData(ivec3 pos, inout int lod) {
     if (any(lessThan(pos, ivec3(0))) ||
         pos.x >= wx * chunkSize ||
@@ -45,25 +46,51 @@ uint readVoxelData(ivec3 pos, inout int lod) {
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
     int regionLod = handles[index].lod;
     lod = regionLod;
-    if (regionLod==32) return handles[index].filled; //the problem is here
-    uvec2 handle = handles[index].handle;
-    if (handle != uvec2(0)) {
-        uimage3D fluidMap = uimage3D(handle);
-        ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
+    if (regionLod!=32) {
+        uvec2 handle = handles[index].handle;
+        if (handle != uvec2(0)) {
+            uimage3D fluidMap = uimage3D(handle);
+            ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
+            uint r = 0u;
+            bool pending = true;
+            while (anyInvocationARB(pending)) {
+                if (pending) {
+                    uvec2 cur = uvec2(readFirstInvocationARB(handle.x), readFirstInvocationARB(handle.y));
+                    if (handle == cur) {
+                        r = imageLoad(uimage3D(cur), lp).x;
+                        pending = false;
+                    }
+                }
+            }
+            if (r!=0) return r;
+        }
+    }
+    uvec2 fluidhandle = handles[index].fluidHandle;
+    if (fluidhandle!=uvec2(0)) {
+        
+        uimage3D fluidMap = uimage3D(fluidhandle);
+        ivec3 lp = (pos & (chunkSize - 1));
+        int nibbleIndex = lp.x & 1;  
+        lp.x /= 2;
         uint r = 0u;
         bool pending = true;
         while (anyInvocationARB(pending)) {
             if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(handle.x), readFirstInvocationARB(handle.y));
-                if (handle == cur) {
+                uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x), readFirstInvocationARB(fluidhandle.y));
+                if (fluidhandle == cur) {
                     r = imageLoad(uimage3D(cur), lp).x;
                     pending = false;
                 }
             }
         }
-        if (r==254 || r==255) return 0;
-        return r;
+        uint byteIndex  = lp.x;        
+        uint shift = nibbleIndex*4;
+        uint nibble  = (r >> shift) & 0x0F;
+        if (nibble!=0) return 10;
     }
+    if (regionLod==32) return handles[index].filled; //the problem is here
+    
+    
     return 0u;
 }
 
@@ -141,6 +168,7 @@ void main() {
         frame[px.y * 3840 + px.x] = color;
         return;
     }
+    float waterTint = 0;
     for (int i = 0; i < 960; i++) {
         int lod;
         uint v = readVoxelData(ivec3(cell),lod);
@@ -161,8 +189,11 @@ void main() {
             skipChunk(cell, tMax, stepDir, tDelta);
             continue;
         }
-        
-        if (v != 0u) {
+        if (v==10) {
+            waterTint=0.5;
+        }
+        if (v != 0u && v!=10) {
+                
             color = packedColors[v-1];
             hitAnything = true;
             break;
@@ -196,8 +227,12 @@ void main() {
                 skipChunk(cell, tMax, stepDir, tDelta);
                 continue;
             }
-        
-            if (v != 0u) {
+            
+            if (v==10) {
+                waterTint=0.5;
+            }
+            if (v != 0u && v!=10) {
+                
                 color = packedColors[v-1];
                 hitAnything = true;
                 break;
@@ -207,6 +242,9 @@ void main() {
 
         }
     }
+    color = packRGBA8(mix(unpackRGBA8(color),vec4(28.0f/255.0f,163.0f/255.0f,236.0f/255.0f,1),waterTint));
+
+    
     int distanceTravelled = int(dot(cell-camPos, camForward));
     if (distanceTravelled<depth[px.y * 3840 + px.x] && hitAnything) {
     
@@ -221,10 +259,16 @@ void main() {
             hr.rgb *= 1.05;
             color = packRGBA8(hr);
         }
-        frame[px.y * 3840 + px.x] = color;
         depth[px.y * 3840 + px.x] = distanceTravelled;
+        frame[px.y * 3840 + px.x] = color;
         pos[px.y * 3840 + px.x] = vec3(cell);
         int lod;
         voxelId[px.y * 3840 + px.x] = int(readVoxelData(ivec3(cell),lod));
     }
+    if (!hitAnything && waterTint!=0) {
+        frame[px.y * 3840 + px.x] = color;
+        frame[px.y * 3840 + px.x+1] = color;
+
+    }
+    
 }

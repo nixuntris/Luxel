@@ -823,6 +823,13 @@ public:
 				free(gen.heightMap);
 			}
 		}
+		uint8_t* preset = (uint8_t*)MemAlloc(16 * 32 * 32);
+		for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
+		for (int i = 0; i < 16 * 32 * 32; i++) {
+			preset[i] |= (1 << 0);
+			preset[i] |= (1 << 4);
+		}
+		
 		int fluidChunks = 0;
 		for (int nx = 0; nx < wx; nx++) {
 			for (int nz = 0; nz < wz; nz++) {
@@ -830,13 +837,18 @@ public:
 					for (int ny = 0; ny < wy; ny++) {
 						int id = ny * (wx * wz) + nz * wx + nx;
 						if (world.chunkData[id].lod != 32) { //since lod 32 works as a fully filled chunk
-							world.chunkData[id].waterMap.Clear({ 32 / 8,32,32 });
-							world.chunkData[id].waterMap.Upload(0);
+							// 4 bits per voxel
+							// 0 - set or not set
+							// 0 - direction set to left
+							// 0 - direction set to right
+							// 0 - direction set to up
+							// 0 - direction set to down
+							world.chunkData[id].waterMap.Clear({ 32 / 2,32,32 });
+							world.chunkData[id].waterMap.Upload(preset);
 							world.chunkData[id].waterMap.GetBindlessHandle();
 							world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
 							fluidChunks++;
 						}
-						
 					}
 				}
 
