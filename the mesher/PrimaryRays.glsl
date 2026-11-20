@@ -190,9 +190,9 @@ void main() {
             continue;
         }
         if (v==10) {
-            waterTint=0.5;
+            waterTint=0.8;
         }
-        if (v != 0u && v!=10) {
+        if (v != 0u) {
                 
             color = packedColors[v-1];
             hitAnything = true;
@@ -229,9 +229,9 @@ void main() {
             }
             
             if (v==10) {
-                waterTint=0.5;
+                waterTint=0.8;
             }
-            if (v != 0u && v!=10) {
+            if (v != 0u) {
                 
                 color = packedColors[v-1];
                 hitAnything = true;

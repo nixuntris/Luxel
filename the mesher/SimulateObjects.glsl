@@ -213,6 +213,31 @@ void setNibbleData(ivec3 pos, uint value) {
     }
 }
 uniform vec3 cameraOffset;
+const ivec3 checkOffsets[5] = ivec3[5](
+    ivec3(0,-1,0),
+    ivec3(-1,-1,0),
+    ivec3(1,-1,0),
+    ivec3(0,-1,-1),
+    ivec3(0,-1,1)
+);
+void UpdateCell(ivec3 position) {
+    int lodr = 0;
+    uint id = readVoxelData(position,lodr);
+    if (id==10) {
+       for (int i = 0; i < 5; i++) {
+            
+            
+            uint bottomValue = readVoxelData(position+checkOffsets[i],lodr);
+            uint nibbleBottom = readWaterData(position+checkOffsets[i]);
+            if (bottomValue==0 && nibbleBottom!=10) {
+                setNibbleData(position,0);
+                setNibbleData(position+checkOffsets[i],10);
+                return;
+            }
+       }            
+    }
+}
+
 void main() {
     ivec3 chunkPosition = ivec3(gl_WorkGroupID.xyz);
 
@@ -225,14 +250,7 @@ void main() {
                 
                 ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*4+ivec3(x,y,z);
                 ivec3 globalPosition = voxel+chunkPosition*chunkSize;
-                int lodr = 0;
-                uint id = readVoxelData(globalPosition,lodr);
-                if (id==10) {
-                    if (readVoxelData(globalPosition-ivec3(0,1,0),lodr)==0) {
-                        setNibbleData(globalPosition,0);
-                        setNibbleData(globalPosition-ivec3(0,1,0),10);
-                    }
-                }
+                UpdateCell(globalPosition);
             }
         }
     }

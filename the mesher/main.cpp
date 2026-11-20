@@ -827,8 +827,8 @@ public:
 		for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
 		for (int x = 0; x < 16; x++) {
 			for (int z = 0; z < 16; z++) {
-				int y = 24;
-				preset[(x)+(y) * 16 + (z) * 16 * 32] |= (1 << 4);
+				int k = 24;
+				for (int y = -4; y<4; y++) preset[(x)+(y+k) * 16 + (z) * 16 * 32] |= (1 << 4);
 			}
 		}
 		
@@ -1086,8 +1086,17 @@ public:
 		shaders.simulateWater.SetInt(wx, "wx");
 		shaders.simulateWater.SetInt(wy, "wy");
 		shaders.simulateWater.SetInt(wz, "wz");
-		shaders.simulateWater.SetVector3({0,0,0}, "cameraOffset");
-		shaders.simulateWater.Use(wx,wy,wz);
+		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
+		int dispatchSize = 960 / 32;
+		if (wx < dispatchSize * 2) {
+			dispatchSize = wx;
+			offset.x = 0;
+			offset.z = 0;
+		}
+		shaders.simulateWater.SetVector3(offset, "cameraOffset");
+
+		shaders.simulateWater.Use(dispatchSize*2,wy,dispatchSize * 2);
+
 	}
 	void Run(bool pregenerate=false) {
 		
