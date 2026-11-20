@@ -13,6 +13,9 @@ layout(std430, binding = 0) buffer GBufferEx {
     int voxelId[3840*2160];
     float lightVal[3840*2160];
 };
+layout(std430, binding = 11) buffer FluidSimulationData {
+    int containsFluids[];
+};
 
 struct Region {
     uvec2 handle;
@@ -40,36 +43,37 @@ uint readWaterData(ivec3 pos) {
         pos.x >= wx * chunkSize ||
         pos.y >= wy * chunkSize ||
         pos.z >= wz * chunkSize)
-        return 0u;   
+        return 0u;
+
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-    int regionLod = handles[index].lod;
-    
+
     uvec2 fluidhandle = handles[index].fluidHandle;
-    if (fluidhandle!=uvec2(0)) {
-        
-        uimage3D fluidMap = uimage3D(fluidhandle);
-        ivec3 lp = (pos & (chunkSize - 1));
-        int nibbleIndex = lp.x & 1;  
-        lp.x /= 2;
-        uint r = 0u;
-        bool pending = true;
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x), readFirstInvocationARB(fluidhandle.y));
-                if (fluidhandle == cur) {
-                    r = imageLoad(uimage3D(cur), lp).x;
-                    pending = false;
-                }
+    if (fluidhandle == uvec2(0))
+        return 0u;
+
+    ivec3 lp = pos & (chunkSize - 1);
+    int nibbleIndex = lp.x & 1;
+    lp.x /= 2;
+
+    uint r = 0u;
+    bool pending = true;
+
+    while (anyInvocationARB(pending)) {
+        if (pending) {
+            uvec2 cur = uvec2(
+                readFirstInvocationARB(fluidhandle.x),
+                readFirstInvocationARB(fluidhandle.y)
+            );
+
+            if (fluidhandle == cur) {
+                r = imageLoad(uimage3D(cur), lp).x;
+                pending = false;
             }
         }
-        uint byteIndex  = lp.x;        
-        uint shift = nibbleIndex*4;
-        uint nibble  = (r >> shift) & 0x0F;
-        if (nibble!=0) return 10;
     }
-   return 0; //the problem is here
-    
+
+    return (r >> (uint(nibbleIndex) * 4u)) & 0x0Fu;
 }
 uint readVoxelData(ivec3 pos, inout int lod) {
     if (any(lessThan(pos, ivec3(0))) ||
@@ -105,7 +109,7 @@ uint readVoxelData(ivec3 pos, inout int lod) {
         uint nibble  = (r >> shift) & 0x0F;
         if (nibble!=0) return 10;
     }
-    if (regionLod==32) return handles[index].filled; //the problem is here
+    if (regionLod==32) return handles[index].filled; 
     
     uvec2 handle = handles[index].handle;
     if (handle != uvec2(0)) {
@@ -173,7 +177,8 @@ void setNibbleData(ivec3 pos, uint value) {
 
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-
+    
+    containsFluids[index] = 1;
     int regionLod = handles[index].lod;
 
     if (regionLod == 32 || regionLod == 3000)
@@ -220,37 +225,97 @@ const ivec3 checkOffsets[5] = ivec3[5](
     ivec3(0,-1,-1),
     ivec3(0,-1,1)
 );
-void UpdateCell(ivec3 position) {
+bool UpdateCellFalling(ivec3 position) {
+    const ivec3 offsets[5] = ivec3[5](
+        ivec3(0,-1,0),
+        ivec3(-1,-1,0),
+        ivec3(1,-1,0),
+        ivec3(0,-1,-1),
+        ivec3(0,-1,1)
+    );
+
     int lodr = 0;
-    uint id = readVoxelData(position,lodr);
-    if (id==10) {
-       for (int i = 0; i < 5; i++) {
-            
-            
-            uint bottomValue = readVoxelData(position+checkOffsets[i],lodr);
-            uint nibbleBottom = readWaterData(position+checkOffsets[i]);
-            if (bottomValue==0 && nibbleBottom!=10) {
-                setNibbleData(position,0);
-                setNibbleData(position+checkOffsets[i],10);
-                return;
-            }
-       }            
+
+    for (int i = 0; i < 5; i++) {
+        ivec3 target = position + offsets[i];
+
+        uint bottomValue = readVoxelData(target, lodr);
+        uint waterBelow = readWaterData(target);
+
+        if (bottomValue == 0 && waterBelow == 0) {
+            setNibbleData(position, 0);
+            setNibbleData(target, 8);
+            return true;
+        }
     }
+
+    return false;
+}
+bool UpdateCellWater(ivec3 position) {
+    const ivec3 directions[4] = ivec3[4](
+        ivec3(-1, 0, 0),
+        ivec3(1, 0, 0),
+        ivec3(0, 0, -1),
+        ivec3(0, 0, 1)
+    );
+
+    uint current = readWaterData(position);
+
+    if (current == 0)
+        return false;
+
+    int previousDirection = int(current & 7u) - 1;
+
+    for (int i = 0; i < 4; i++) {
+        int direction = (previousDirection + 1 + i) % 4;
+        if (previousDirection >= 0 &&
+            direction == (previousDirection ^ 1))
+            continue;
+
+        ivec3 target = position + directions[direction];
+
+        int lodr = 0;
+
+        uint targetVoxel = readVoxelData(target, lodr);
+        uint targetWater = readWaterData(target);
+
+        if (targetVoxel != 0 || targetWater != 0)
+            continue;
+
+        ivec3 belowTarget = target + ivec3(0, -1, 0);
+
+        uint supportVoxel = readVoxelData(belowTarget, lodr);
+        uint supportWater = readWaterData(belowTarget);
+        if (supportVoxel == 0 && supportWater == 0)
+            continue;
+        setNibbleData(position, 0);
+        setNibbleData(target, uint(9 + direction));
+
+        return true;
+    }
+
+    return false;
 }
 
 void main() {
-    ivec3 chunkPosition = ivec3(gl_WorkGroupID.xyz);
+    ivec3 chunkPosition = ivec3(gl_WorkGroupID.xyz)+ivec3(cameraOffset);
+    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; 
 
-    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; //this is fine
-
-    if (handles[index].lod!=1) return;
+    if (handles[index].lod!=1 && handles[index].lod!=32) return;
     for (int x = 0; x < 4; x++) {
         for (int z = 0; z <4; z++) {
             for (int y = 0; y < 4; y++) {
                 
                 ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*4+ivec3(x,y,z);
                 ivec3 globalPosition = voxel+chunkPosition*chunkSize;
-                UpdateCell(globalPosition);
+                int lodr;
+                uint id = readVoxelData(globalPosition,lodr);
+                if (id == 10) {
+                    containsFluids[index] = 1;
+                    if (!UpdateCellFalling(globalPosition)) {
+                        UpdateCellWater(globalPosition);
+                    }
+                }
             }
         }
     }

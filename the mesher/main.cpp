@@ -48,6 +48,9 @@ class App {
 	bool mainMenu = false;
 	bool releasedMenu = false;
 	int frame = 0;
+	bool simulateWater = false;
+	int waterUpdateFrequency = 4;
+	int* containsFluids;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -81,6 +84,7 @@ public:
 		totalTriangleCount = 59259259/2;
 		totalMeshletCount = totalTriangleCount/64;
 		shaders.display.CreateSSBO(3, sizeof(world.handle));
+		shaders.display.CreateSSBO(11, mwx*mwy*mwz*sizeof(int));
 		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
 		shaders.display.CreatePersistentSSBO(5, (totalMeshletCount + 1) * sizeof(int) * 8);
 		shaders.display.CreatePersistentSSBO(2, totalTriangleCount * sizeof(uint32_t) * 8);
@@ -92,6 +96,8 @@ public:
 		viewPort.shaders = &shaders;
 		structureManager.Init();
 		chunks = (Chunk*)MemAlloc(wx * wz * wy * sizeof(Chunk));
+		containsFluids = (int*)MemAlloc(mwx * mwz * mwy * sizeof(int));
+		for (int i = 0; i < mwx * mwz * mwy; i++) containsFluids[i] = 1;
 	}
 	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs, int trianglesRendered) {
 		if (window.GetKeyPressed(KEY_K) && releasedMenu) {
@@ -144,6 +150,8 @@ public:
 			ImGui::Begin("Debug Menu");
 
 			ImGui::SliderInt("Edit Size", &editSize, 1, 300);
+			ImGui::SliderInt("Water Update Frequency", &waterUpdateFrequency, 1, 15);
+			CustomToggle("Simulate Water", &simulateWater);
 			ImGui::SliderInt("Render Distance", &renderDistance, 1, 1000);
 			ImGui::SliderFloat("Render Percentage", &viewPort.renderPercentage, 0.1f, 1.0f);
 			ImGui::SliderInt("Max Mesh Gen Per Frame", &maxMeshUpdate, 1, 40);
@@ -1081,6 +1089,8 @@ public:
 		}
 	}
 	void SimulateFluidObjects() {
+		Anubis::SwitchShaderStage(shaders.display.shaderId);
+		shaders.display.UpdateSSBO(11, 0, mwx * mwy * mwz, 0);
 		
 		Anubis::SwitchShaderStage(shaders.simulateWater.programID);
 		shaders.simulateWater.SetInt(wx, "wx");
@@ -1088,15 +1098,40 @@ public:
 		shaders.simulateWater.SetInt(wz, "wz");
 		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
 		int dispatchSize = 960 / 32;
+		
 		if (wx < dispatchSize * 2) {
 			dispatchSize = wx;
 			offset.x = 0;
 			offset.z = 0;
 		}
+
 		shaders.simulateWater.SetVector3(offset, "cameraOffset");
 
 		shaders.simulateWater.Use(dispatchSize*2,wy,dispatchSize * 2);
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
+		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
+			GL_BUFFER_UPDATE_BARRIER_BIT);
 
+		glGetBufferSubData(
+			GL_SHADER_STORAGE_BUFFER,
+			0,
+			wx * wy * wz * sizeof(int),
+			containsFluids
+		);
+
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+		int updateAble = 0;
+		for (int x = 0; x < wx; x++) {
+			for (int y = 0; y < wy; y++) {
+				for (int z = 0; z < wz; z++) {
+					int chunkId = y * (wx * wz) + z * wx + x;
+					if (containsFluids[chunkId]) {
+						updateAble++;
+					}
+				}
+			}
+		}
+		std::cout << "Batched Update: " << updateAble<<" Naive Update: "<<dispatchSize*wy*2*dispatchSize*2 << "\n";
 	}
 	void Run(bool pregenerate=false) {
 		
@@ -1122,7 +1157,7 @@ public:
 			if (!menuOpen) {
 				viewPort.camera.UpdateFREE(window.GetMousePos(), oldMouse, window);
 			}
-			if (frame%15==0) SimulateFluidObjects();
+			if (frame%waterUpdateFrequency==0 && simulateWater) SimulateFluidObjects();
 			Vector3 tag = { (float)viewPort.camera.target.x ,(float)viewPort.camera.target.y,(float)viewPort.camera.target.z };
 			Vector3 pos = { (float)viewPort.camera.position.x ,(float)viewPort.camera.position.y,(float)viewPort.camera.position.z };
 
@@ -1251,15 +1286,36 @@ public:
 				else break;
 			}
 			if (!hitDeadEnd) {
-				rayCastPos = { pos.x + forward.x * 25,pos.y + forward.y * 25,pos.z + forward.z * 25 };
+				rayCastPos = { pos.x + forward.x * 5,pos.y + forward.y * 5,pos.z + forward.z * 5 };
 			}
 			if (window.GetMouseButtonPressed(1)) {
-				AnimatedObject ao({ pos.x,pos.y,pos.z }, 2);
-				ao.hasGravity = true;
-				ao.staticAnimation = false;
-				world.animatedObjects.push_back(ao);
+				Vector3 ppp = rayCastPos;
 
+				bool doneChanges = false;
+				bool allocatedThisRun = false;
+				for (int dx = 0; dx < editSize; dx++) {
+					for (int dy = 0; dy < editSize; dy++) {
+						for (int dz = 0; dz < editSize; dz++) {
 
+							Vector3 pp = ppp;
+							pp.x += dx;
+							pp.y += dy;
+							pp.z += dz;
+
+							int x = pp.x / chunkSize;
+							int y = pp.y / chunkSize;
+							int z = pp.z / chunkSize;
+
+							int id = y * (wx * wz) + z * wx + x;
+
+							if (id >= wx * wy * wz || id < 0) continue;
+							if (chunks[id].lod == 1) {
+								world.chunkData[id].waterMap.ChangePixel((int)pp.x%16, (int)pp.y%32, (int)pp.z%32,0b10001000);
+							}
+
+						}
+					}
+				}
 			}
 			if (!viewPort.raytracePrimaryRays) {
 				

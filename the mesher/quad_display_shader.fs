@@ -49,6 +49,10 @@ layout(std430, binding = 9) buffer MeshletCounter {
     int chunkEnd[1024];
 };
 
+layout(std430, binding = 11) buffer FluidSimulationData {
+    int containsFluids[];
+};
+
 layout(std430, binding = 10) buffer GPUBatch {
     ivec3 gpuBatch[1024];
 };
