@@ -11,7 +11,7 @@ struct ViewPort {
 	Math::Vector3 planeNormals[6];
 	Anubis::Camera camera;
 	float planeDs[6];
-	bool raytracePrimaryRays = false;
+	bool raytracePrimaryRays = true;
 	float renderPercentage = 1;
 	void Display(int frame, int wHeight) {
 		shaders->display.Use();
@@ -80,7 +80,7 @@ struct ViewPort {
 	inline void RasterizeMeshes(Matrix matView, Vector3 pos, Vector3 forward, const std::vector<uint32_t> palette, int frame, int triangleCount, Math::IVector2 resolution) {
 		if (raytracePrimaryRays) {
 
-			Anubis::SwitchShaderStage(shaders->prepassPrimaryRays.programID);
+		/*	Anubis::SwitchShaderStage(shaders->prepassPrimaryRays.programID);
 			shaders->prepassPrimaryRays.SetVector3({ pos.x,pos.y,pos.z }, "camPos");
 			shaders->prepassPrimaryRays.SetVector3({ forward.x,forward.y,forward.z }, "camForward");
 			shaders->prepassPrimaryRays.SetMatrix({ matView.m0,matView.m1,matView.m2,matView.m3,matView.m4,matView.m5,matView.m6,matView.m7,matView.m8,matView.m9,matView.m10,matView.m11,matView.m12,matView.m13,matView.m14,matView.m15 }, "matView");
@@ -94,7 +94,7 @@ struct ViewPort {
 			shaders->prepassPrimaryRays.SetInt(0, "offset");
 
 			shaders->prepassPrimaryRays.Use((resolution.width / 32 / 4) * renderPercentage, (resolution.height / 4 / 16) * renderPercentage, 1);
-
+			*/
 			Anubis::SwitchShaderStage(shaders->primaryRays.programID);
 			shaders->primaryRays.SetVector3({ pos.x,pos.y,pos.z }, "camPos");
 			shaders->primaryRays.SetVector3({ forward.x,forward.y,forward.z }, "camForward");

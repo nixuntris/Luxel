@@ -825,9 +825,11 @@ public:
 		}
 		uint8_t* preset = (uint8_t*)MemAlloc(16 * 32 * 32);
 		for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
-		for (int i = 0; i < 16 * 32 * 32; i++) {
-			preset[i] |= (1 << 0);
-			preset[i] |= (1 << 4);
+		for (int x = 0; x < 16; x++) {
+			for (int z = 0; z < 16; z++) {
+				int y = 24;
+				preset[(x)+(y) * 16 + (z) * 16 * 32] |= (1 << 4);
+			}
 		}
 		
 		int fluidChunks = 0;
@@ -1078,6 +1080,15 @@ public:
 			}
 		}
 	}
+	void SimulateFluidObjects() {
+		
+		Anubis::SwitchShaderStage(shaders.simulateWater.programID);
+		shaders.simulateWater.SetInt(wx, "wx");
+		shaders.simulateWater.SetInt(wy, "wy");
+		shaders.simulateWater.SetInt(wz, "wz");
+		shaders.simulateWater.SetVector3({0,0,0}, "cameraOffset");
+		shaders.simulateWater.Use(wx,wy,wz);
+	}
 	void Run(bool pregenerate=false) {
 		
 		std::vector<uint32_t> ColorPallete;
@@ -1102,6 +1113,7 @@ public:
 			if (!menuOpen) {
 				viewPort.camera.UpdateFREE(window.GetMousePos(), oldMouse, window);
 			}
+			if (frame%15==0) SimulateFluidObjects();
 			Vector3 tag = { (float)viewPort.camera.target.x ,(float)viewPort.camera.target.y,(float)viewPort.camera.target.z };
 			Vector3 pos = { (float)viewPort.camera.position.x ,(float)viewPort.camera.position.y,(float)viewPort.camera.position.z };
 
