@@ -205,7 +205,7 @@ void main() {
     float firstWaterDistance = -1.0;
     vec3 surfaceNormal = vec3(0.0, 1.0, 0.0);
     float waterThickness = 0.0;
-
+    ivec3 enteredWaterPosition = ivec3(-1);
     for (int i = 0; i < 1000; i++) {
         vec3 entryTimes = nextCrossing - crossingStep;
         float enterDistance = max(max(max(entryTimes.x, entryTimes.y), entryTimes.z), 0.0);
@@ -227,6 +227,9 @@ void main() {
         float exitDistance = min(nextCrossing.x, min(nextCrossing.y, nextCrossing.z));
 
         if (voxel == 10u) {
+            if (enteredWaterPosition==ivec3(-1)) {
+                enteredWaterPosition = ivec3(floor(cell));
+            }
             if (firstWaterDistance < 0.0) {
                 firstWaterDistance = enterDistance;
                 if (enterDistance > 0.0) {
@@ -264,12 +267,22 @@ void main() {
     vec3 skyColor = vec3(0.53, 0.75, 0.95);
     vec3 waterBody = background * transmittance + waterScatter * skyColor * (1.0 - transmittance);
 
-    vec3 finalColor = mix(waterBody, skyColor, fresnel);
-
-    frame[pixelIndex] = packRGBA8(vec4(finalColor, 1.0));
-
     int waterDistance = int(dot(cell - camPos, camForward));
-    if (waterDistance < depth[pixelIndex]) {
-        depth[pixelIndex] = waterDistance;
+    vec3 reflectedColor = skyColor;
+    if (fresnel > 0.03) {
+        vec3 marchPos = hitPosition + surfaceNormal * 0.01;
+        vec3 reflectedDir = reflect(rayDir, surfaceNormal);
+        for (int i = 0; i < 100; i++) {
+            marchPos += reflectedDir * 0.5;
+            int lod;
+            uint voxel = readVoxelData(ivec3(floor(marchPos)), lod);
+            if (voxel != 0u && voxel != 10u) {
+                reflectedColor = unpackRGBA8(packedColors[voxel]).rgb;
+                break;
+            }
+        }
     }
+
+    vec3 finalColor = mix(waterBody, reflectedColor, fresnel);
+    frame[pixelIndex] = packRGBA8(vec4(finalColor, 1.0));
 }
