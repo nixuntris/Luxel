@@ -93,6 +93,7 @@ namespace Anubis {
     };
     class GPUONLYByteMap {
     public:
+        bool uploaded = false;
         Math::IVector3 size{};
         GLuint textureID = 0;
         GLuint64 handle = 0;
@@ -102,7 +103,7 @@ namespace Anubis {
             size = s;
         }
         inline void Upload(uint8_t* data = nullptr) {
-
+            uploaded = true;
             glCreateTextures(GL_TEXTURE_3D, 1, &textureID);
             glTextureStorage3D(textureID, 1, GL_R8UI, size.x, size.y, size.z);
 
@@ -146,6 +147,7 @@ namespace Anubis {
             return handle;
         }
         inline void Delete() {
+            uploaded = false;
             if (handle != 0) {
                 glMakeImageHandleNonResidentARB(handle);
                 handle = 0;
@@ -464,6 +466,19 @@ namespace Anubis {
 
             delete[] flatArray;
 
+        }
+        void SetIVector3Array(Math::IVector3* array, int count, const char* name) {
+            GLint location = glGetUniformLocation(programID, name);
+            GLint* flatArray = new GLint[count * 3];
+            for (size_t i = 0; i < count; ++i) {
+                flatArray[i * 3] = array[i].x;
+                flatArray[i * 3 + 1] = array[i].y;
+                flatArray[i * 3 + 2] = array[i].z;
+            }
+
+            glUniform3iv(location, count, flatArray);
+
+            delete[] flatArray;
         }
         void SetVector3Array(Math::Vector3* array, int count, const char* name) {
             GLint location = glGetUniformLocation(programID, name);

@@ -9,6 +9,10 @@ const int mwx = 300;
 const int mwy = 32;
 const int mwz = 300;
 const int maxAnimationObjects = 1024;
+const int maxGPUBatch = 1024 * 1024;
+const int maxGrassCount = 1449303 * 2;
+const int waterSimulationResolution = 1; //the larger the smaller 1/resolution
+const bool waterSimulationEnabled = true;
 const std::vector<Color> palette = {
 	{0, 255, 0, 255},       // 0: GREEN GRASS
 	{128, 128, 128, 255},   // 1: GRAY
@@ -72,6 +76,7 @@ struct ShaderManager {
 	Anubis::ComputeShader setAnimatedObjects;
 	Anubis::ComputeShader clearAnimatedObjects;
 	Anubis::ComputeShader simulateWater;
+	Anubis::ComputeShader simulateWaterBatched;
 	Anubis::ComputeShader renderWater;
 	void Load() {
 
@@ -107,6 +112,7 @@ struct ShaderManager {
 		setAnimatedObjects.Setup(path("SetAnimatedData.glsl"));
 		clearAnimatedObjects.Setup(path("ClearAnimatedData.glsl"));
 		simulateWater.Setup(path("SimulateObjects.glsl"));
+		simulateWaterBatched.Setup(path("SimulateObjectsBatched.glsl"));
 		renderWater.Setup(path("WaterTrace.glsl"));
 	}
 

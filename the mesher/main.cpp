@@ -15,9 +15,6 @@
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
 
-const int maxGPUBatch = 1024 * 1024;
-const int maxGrassCount = 1449303 * 2;
-
 class App {
 	Anubis::Window window;
 	Chunk* chunks;
@@ -51,6 +48,9 @@ class App {
 	bool simulateWater = false;
 	int waterUpdateFrequency = 4;
 	int* containsFluids;
+	Math::IVector3 *waterSimulationBatch;
+	int lastBatch = 0;
+	bool batchWater = false;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -99,7 +99,7 @@ public:
 		containsFluids = (int*)MemAlloc(mwx * mwz * mwy * sizeof(int));
 		for (int i = 0; i < mwx * mwz * mwy; i++) containsFluids[i] = 1;
 	}
-	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs, int trianglesRendered) {
+	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs,double waterMs, int trianglesRendered) {
 		if (window.GetKeyPressed(KEY_K) && releasedMenu) {
 			menuOpen = !menuOpen;
 			releasedMenu = false;
@@ -152,6 +152,7 @@ public:
 			ImGui::SliderInt("Edit Size", &editSize, 1, 300);
 			ImGui::SliderInt("Water Update Frequency", &waterUpdateFrequency, 1, 15);
 			CustomToggle("Simulate Water", &simulateWater);
+			CustomToggle("Batch Water Simulation", &batchWater);
 			ImGui::SliderInt("Render Distance", &renderDistance, 1, 1000);
 			ImGui::SliderFloat("Render Percentage", &viewPort.renderPercentage, 0.1f, 1.0f);
 			ImGui::SliderInt("Max Mesh Gen Per Frame", &maxMeshUpdate, 1, 40);
@@ -189,6 +190,7 @@ public:
 			ImGui::Text("Raster: %.2f ms", rasterTimeMs);
 			ImGui::Text("Culling: %.2f ms", frustumTimeMs);
 			ImGui::Text("Secondary Rays: %.2f ms", secondaryRaysMs);
+			ImGui::Text("Simulation Time : %.2f ms", waterMs);
 			ImGui::Text("Total Triangles In Scene: %d", totalTriangleCount);
 			ImGui::Text("Rendered Triangles: %d ", trianglesRendered);
 			ImGui::Separator();
@@ -643,6 +645,8 @@ public:
 				window.Resize(resolution.width,resolution.height);
 				world.Setup();
 				viewPort.camera.position = { (double)wx * chunkSize/2,200,(double)wz * chunkSize / 2 };
+				waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
+
 				if (pregenerate) {
 					Run(true);
 				}
@@ -831,40 +835,42 @@ public:
 				free(gen.heightMap);
 			}
 		}
-		uint8_t* preset = (uint8_t*)MemAlloc(16 * 32 * 32);
-		for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
-		for (int x = 0; x < 16; x++) {
-			for (int z = 0; z < 16; z++) {
-				int k = 24;
-				for (int y = -4; y<4; y++) preset[(x)+(y+k) * 16 + (z) * 16 * 32] |= (1 << 4);
+		if (waterSimulationEnabled) {
+
+			uint8_t* preset = (uint8_t*)MemAlloc(16 * 32 * 32);
+			for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
+			for (int x = 0; x < 16; x++) {
+				for (int z = 0; z < 32; z++) {
+					int k = 24;
+					for (int y = -4; y < 4; y++) preset[(x)+(y + k) * 16 + (z) * 16 * 32] |= (1 << 4);
+				}
 			}
-		}
-		
-		int fluidChunks = 0;
-		for (int nx = 0; nx < wx; nx++) {
-			for (int nz = 0; nz < wz; nz++) {
-				if (world.setLod[nx][nz] == 1) {
-					for (int ny = 0; ny < wy; ny++) {
-						int id = ny * (wx * wz) + nz * wx + nx;
-						if (world.chunkData[id].lod != 32) { //since lod 32 works as a fully filled chunk
-							// 4 bits per voxel
-							// 0 - set or not set
-							// 0 - direction set to left
-							// 0 - direction set to right
-							// 0 - direction set to up
-							// 0 - direction set to down
-							world.chunkData[id].waterMap.Clear({ 32 / 2,32,32 });
-							world.chunkData[id].waterMap.Upload(preset);
-							world.chunkData[id].waterMap.GetBindlessHandle();
-							world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
-							fluidChunks++;
+
+			int fluidChunks = 0;
+			for (int nx = 0; nx < wx; nx++) {
+				for (int nz = 0; nz < wz; nz++) {
+					if (world.setLod[nx][nz] == 1) {
+						for (int ny = 0; ny < wy; ny++) {
+							int id = ny * (wx * wz) + nz * wx + nx;
+							if (world.chunkData[id].lod != 32) { //since lod 32 works as a fully filled chunk
+								// 4 bits per voxel
+								// 0 - set or not set
+								// 0 - direction set to left
+								// 0 - direction set to right
+								// 0 - direction set to up
+								// 0 - direction set to down
+								world.chunkData[id].waterMap.Clear({ 32 / 2,32,32 });
+								world.chunkData[id].waterMap.Upload(preset);
+								world.chunkData[id].waterMap.GetBindlessHandle();
+								world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
+							}
 						}
 					}
-				}
 
+				}
 			}
+			free(preset);
 		}
-		std::cout << "Chunks that have fluids: " << fluidChunks << '\n';
 		END_TIMER(data_gen)
 		START_TIMER(upload)
 		int maxCount = wx * wy * wz;
@@ -1091,47 +1097,102 @@ public:
 	void SimulateFluidObjects() {
 		Anubis::SwitchShaderStage(shaders.display.shaderId);
 		shaders.display.UpdateSSBO(11, 0, mwx * mwy * mwz, 0);
-		
-		Anubis::SwitchShaderStage(shaders.simulateWater.programID);
-		shaders.simulateWater.SetInt(wx, "wx");
-		shaders.simulateWater.SetInt(wy, "wy");
-		shaders.simulateWater.SetInt(wz, "wz");
 		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
 		int dispatchSize = 960 / 32;
-		
+
 		if (wx < dispatchSize * 2) {
 			dispatchSize = wx;
 			offset.x = 0;
 			offset.z = 0;
 		}
+		if (lastBatch == 0 || !batchWater) {
 
-		shaders.simulateWater.SetVector3(offset, "cameraOffset");
+			Anubis::SwitchShaderStage(shaders.simulateWater.programID);
+			shaders.simulateWater.SetInt(wx, "wx");
+			shaders.simulateWater.SetInt(wy, "wy");
+			shaders.simulateWater.SetInt(wz, "wz");
+			shaders.simulateWater.SetVector3(offset, "cameraOffset");
+			shaders.simulateWater.Use(dispatchSize * 2, wy, dispatchSize * 2);
+		}
+		else {
+			Math::IVector3 currentBatch[1024];
+			int currentBatchId = 0;
+			for (int i = 0; i < lastBatch; i++) {
+				if (currentBatchId >= 1024) {
+					Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
+					shaders.simulateWaterBatched.SetInt(wx, "wx");
+					shaders.simulateWaterBatched.SetInt(wy, "wy");
+					shaders.simulateWaterBatched.SetInt(wz, "wz");
+					shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
+					shaders.simulateWaterBatched.Use(lastBatch, 1, 1);
+					currentBatchId = 0;
+				}
+				currentBatch[i] = waterSimulationBatch[i];
+				currentBatchId++;
+			}
 
-		shaders.simulateWater.Use(dispatchSize*2,wy,dispatchSize * 2);
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
-		glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
-			GL_BUFFER_UPDATE_BARRIER_BIT);
+			if (currentBatchId >= 1024) {
+				Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
+				shaders.simulateWaterBatched.SetInt(wx, "wx");
+				shaders.simulateWaterBatched.SetInt(wy, "wy");
+				shaders.simulateWaterBatched.SetInt(wz, "wz");
+				shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
+				shaders.simulateWaterBatched.Use(lastBatch, 1, 1);
+				currentBatchId = 0;
+			}
+		}
+		if (batchWater) {
 
-		glGetBufferSubData(
-			GL_SHADER_STORAGE_BUFFER,
-			0,
-			wx * wy * wz * sizeof(int),
-			containsFluids
-		);
+			Anubis::SwitchShaderStage(shaders.display.shaderId);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
+				GL_BUFFER_UPDATE_BARRIER_BIT);
 
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-		int updateAble = 0;
-		for (int x = 0; x < wx; x++) {
-			for (int y = 0; y < wy; y++) {
-				for (int z = 0; z < wz; z++) {
-					int chunkId = y * (wx * wz) + z * wx + x;
-					if (containsFluids[chunkId]) {
-						updateAble++;
+			glGetBufferSubData(
+				GL_SHADER_STORAGE_BUFFER,
+				0,
+				wx * wy * wz * sizeof(int),
+				containsFluids
+			);
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+			int updateAble = 0;
+			int shouldUpdate = 0;
+			for (int x = 0; x < wx; x++) {
+				for (int y = 0; y < wy; y++) {
+					for (int z = 0; z < wz; z++) {
+						int chunkId = y * (wx * wz) + z * wx + x;
+						if (containsFluids[chunkId] == 0) {
+							world.chunkData[chunkId].lastChunkWaterActivity += 1;
+						}
+						else {
+							world.chunkData[chunkId].lastChunkWaterActivity = 0;
+						}
+						if (world.chunkData[chunkId].lastChunkWaterActivity < 3) {
+							shouldUpdate++;
+						}
 					}
 				}
 			}
+			if (shouldUpdate < 30 * 30 * wy / 2) {
+				int i = 0;
+				for (int x = 0; x < wx; x++) {
+					for (int y = 0; y < wy; y++) {
+						for (int z = 0; z < wz; z++) {
+							int chunkId = y * (wx * wz) + z * wx + x;
+							if (world.chunkData[chunkId].lastChunkWaterActivity < 3) {
+								waterSimulationBatch[i] = { x,y,z };
+								i++;
+							}
+						}
+					}
+				}
+
+				lastBatch = i;
+			}
+			std::cout << "Update queue: " << shouldUpdate << "\n";
+			std::cout << "Batched Update: " << updateAble << " Naive Update: " << dispatchSize * wy * 2 * dispatchSize * 2 << "\n";
 		}
-		std::cout << "Batched Update: " << updateAble<<" Naive Update: "<<dispatchSize*wy*2*dispatchSize*2 << "\n";
 	}
 	void Run(bool pregenerate=false) {
 		
@@ -1143,12 +1204,13 @@ public:
 		Math::Vector2 oldMouse = window.GetMousePos();
 		const ImVec4 clearColor = { 0.1f, 0.1f, 0.12f, 1.0f };
 		shaders.display.UpdateSSBO(9, 0, sizeof(int), 0);
-		Math::IVector2 oldChunkPos = { viewPort.camera.position.x / chunkSize,viewPort.camera.position.z / chunkSize };
 		if (pregenerate) PreGenerateFullDebug();
+		Math::IVector2 oldChunkPos = { viewPort.camera.position.x / chunkSize,viewPort.camera.position.z / chunkSize };
 		bool releasedMouseButton = false;
 		Math::IVector3 chunksUpdatedThisFrame[100];
 		int chunkCount = 0;
-		
+		double simulationTime = 0;
+		Anubis::GpuTimer waterSimulation;
 		while (window.IsOpen()) {
 			double frameStart = glfwGetTime();
 			int zero = 0;
@@ -1157,7 +1219,13 @@ public:
 			if (!menuOpen) {
 				viewPort.camera.UpdateFREE(window.GetMousePos(), oldMouse, window);
 			}
-			if (frame%waterUpdateFrequency==0 && simulateWater) SimulateFluidObjects();
+
+			if (frame % waterUpdateFrequency == 0 && simulateWater) {
+				waterSimulation.Start();
+				SimulateFluidObjects();
+				simulationTime = waterSimulation.Stop();
+
+			}
 			Vector3 tag = { (float)viewPort.camera.target.x ,(float)viewPort.camera.target.y,(float)viewPort.camera.target.z };
 			Vector3 pos = { (float)viewPort.camera.position.x ,(float)viewPort.camera.position.y,(float)viewPort.camera.position.z };
 
@@ -1762,7 +1830,7 @@ public:
 			ImGui_ImplOpenGL3_NewFrame();
 			ImGui_ImplGlfw_NewFrame();
 			ImGui::NewFrame();
-			DebugMenu(grassTimeMs, frustumTimeMs, rasterTimeMs, secondaryRaysMs, trianglesRendered);
+			DebugMenu(grassTimeMs, frustumTimeMs, rasterTimeMs, secondaryRaysMs, simulationTime,trianglesRendered);
 			window.UpdateBuffer();
 
 			double elapsed = glfwGetTime() - frameStart;

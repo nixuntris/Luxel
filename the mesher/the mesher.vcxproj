@@ -171,6 +171,7 @@
     <None Include="SecondaryRays.glsl" />
     <None Include="SetAnimatedData.glsl" />
     <None Include="SimulateObjects.glsl" />
+    <None Include="SimulateObjectsBatched.glsl" />
     <None Include="tree.voxobj" />
     <None Include="ver.vs" />
     <None Include="WaterTrace.glsl" />

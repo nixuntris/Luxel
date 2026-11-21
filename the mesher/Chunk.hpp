@@ -37,6 +37,7 @@ struct ChunkData {
 	uint8_t* compressedTerrain;
 	bool compressed;
 	int voxelCount = 0;
+	int lastChunkWaterActivity = 0;
 	bool updated = false;
 };
 struct World {
@@ -305,13 +306,10 @@ public:
 			chunkData->skipped = true;
 			return;
 		}
-		
-		//wondering whether it should be a flag or what, i am feeling iffy about directly generating as compressed data, but also at the same time why not?
-		//I want to keep it as simple as possible so that I don't hard code cases but also it's still c++... maybe leave desert more general as it's cheaper?
-
 
 		chunkData->compressedTerrain = (uint8_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint8_t));
 		chunkData->shortenedData = true;
+		grassList.resize(32 * 32);
 		for (uint8_t x = 0; x < chunkSize; x += 1) {
 			for (uint8_t z = 0; z < chunkSize; z += 1) {
 				int terrainHeight = generationData.heightMap[x + z * chunkSize];
