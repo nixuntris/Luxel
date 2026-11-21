@@ -176,6 +176,9 @@
     <None Include="SimulateObjects.glsl">
       <Filter>Source Files\Shaders\Rasterizer\Physics</Filter>
     </None>
+    <None Include="WaterTrace.glsl">
+      <Filter>Source Files\Shaders\Raytracing\Primary Rays</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="caves.txt">

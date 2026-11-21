@@ -11,7 +11,7 @@ struct ViewPort {
 	Math::Vector3 planeNormals[6];
 	Anubis::Camera camera;
 	float planeDs[6];
-	bool raytracePrimaryRays = true;
+	bool raytracePrimaryRays = false;
 	float renderPercentage = 1;
 	void Display(int frame, int wHeight) {
 		shaders->display.Use();
@@ -129,6 +129,22 @@ struct ViewPort {
 
 			shaders->rasterizer.Use(floor(triangleCount), 1, 1);
 		}
+		Anubis::SwitchShaderStage(shaders->renderWater.programID);
+		shaders->renderWater.SetVector3({ pos.x,pos.y,pos.z }, "camPos");
+		shaders->renderWater.SetVector3({ forward.x,forward.y,forward.z }, "camForward");
+		shaders->renderWater.SetMatrix({ matView.m0,matView.m1,matView.m2,matView.m3,matView.m4,matView.m5,matView.m6,matView.m7,matView.m8,matView.m9,matView.m10,matView.m11,matView.m12,matView.m13,matView.m14,matView.m15 }, "matView");
+		shaders->renderWater.SetMatrix({ matProj.m0,matProj.m1,matProj.m2,matProj.m3,matProj.m4,matProj.m5,matProj.m6,matProj.m7,matProj.m8,matProj.m9,matProj.m10,matProj.m11,matProj.m12,matProj.m13,matProj.m14,matProj.m15 }, "matProj");
+		shaders->renderWater.SetInt(wx, "wx");
+		shaders->renderWater.SetInt(wy, "wy");
+		shaders->renderWater.SetInt(wz, "wz");
+		shaders->renderWater.SetUIntArray(palette.data(), palette.size(), "packedColors");
+		shaders->renderWater.SetInt(resolution.width* renderPercentage, "renderWidth");
+		shaders->renderWater.SetInt(resolution.height* renderPercentage, "renderHeight");
+		shaders->renderWater.SetInt(frame, "frameIndex");
+		shaders->renderWater.SetInt(0, "offset");
+
+		shaders->renderWater.Use((resolution.width / 32)* renderPercentage, (resolution.height / 16)* renderPercentage, 1);
+
 
 	}
 	inline void RenderGrass(Matrix matView, Vector3 pos, Vector3 forward, int frame, Math::IVector2 resolution, int grass) {

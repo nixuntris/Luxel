@@ -72,6 +72,7 @@ struct ShaderManager {
 	Anubis::ComputeShader setAnimatedObjects;
 	Anubis::ComputeShader clearAnimatedObjects;
 	Anubis::ComputeShader simulateWater;
+	Anubis::ComputeShader renderWater;
 	void Load() {
 
 		std::string shaderDir = "";
@@ -106,6 +107,7 @@ struct ShaderManager {
 		setAnimatedObjects.Setup(path("SetAnimatedData.glsl"));
 		clearAnimatedObjects.Setup(path("ClearAnimatedData.glsl"));
 		simulateWater.Setup(path("SimulateObjects.glsl"));
+		renderWater.Setup(path("WaterTrace.glsl"));
 	}
 
 };

@@ -173,6 +173,7 @@
     <None Include="SimulateObjects.glsl" />
     <None Include="tree.voxobj" />
     <None Include="ver.vs" />
+    <None Include="WaterTrace.glsl" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Chunk generation optimizations.txt" />
