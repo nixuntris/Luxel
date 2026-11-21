@@ -178,107 +178,98 @@ void skipChunk(inout vec3 cell, inout vec3 tMax, ivec3 stepDir, vec3 tDelta)
     cell += stepDir * ki;
     tMax += tDelta * vec3(ki);
 }
-void main() {
-    ivec2 px = ivec2(gl_GlobalInvocationID.xy);
-    px.y*=2;
-    px.x*=2;
-    px.y += (frameIndex+1)%2;
-    if (px.x >= renderWidth || px.y >= renderHeight) return;
+const vec3 waterAbsorb = vec3(0.45,0.07,0.03);
+const vec3 waterScatter = vec3(0.05, 0.35, 0.55);
 
-    vec2 ndc = vec2((px.x + 0.5) / renderWidth * 2.0 - 1.0,
-                    1.0 - (px.y + 0.5) / renderHeight * 2.0);
-    vec4 far = inverse(matProj * matView) * vec4(ndc, 1.0, 1.0);
-    vec3 rd = normalize(far.xyz / far.w - camPos);
-    rd = mix(rd, vec3(1e-6), lessThan(abs(rd), vec3(1e-6)));
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    pixel.y *= 2;
+    pixel.x *= 2;
+    pixel.y += (frameIndex + 1) % 2;
+    if (pixel.x >= renderWidth || pixel.y >= renderHeight) return;
+
+    int pixelIndex = pixel.y * 3840 + pixel.x;
+
+    vec2 ndc = vec2((pixel.x + 0.5) / renderWidth * 2.0 - 1.0,
+                    1.0 - (pixel.y + 0.5) / renderHeight * 2.0);
+    vec4 farPoint = inverse(matProj * matView) * vec4(ndc, 1.0, 1.0);
+    vec3 rayDir = normalize(farPoint.xyz / farPoint.w - camPos);
+    rayDir = mix(rayDir, vec3(1e-6), lessThan(abs(rayDir), vec3(1e-6)));
 
     vec3 cell = ivec3(floor(camPos));
-    ivec3 stepDir = ivec3(sign(rd));
-    vec3 tDelta = abs(1.0 / rd);
-    vec3 tMax = (vec3(cell) + vec3(max(stepDir, ivec3(0))) - camPos) / rd;
+    ivec3 stepDir = ivec3(sign(rayDir));
+    vec3 crossingStep = abs(1.0 / rayDir);
+    vec3 nextCrossing = (vec3(cell) + vec3(max(stepDir, ivec3(0))) - camPos) / rayDir;
 
-    uint color = 0xFFF2BF87u; 
-    int axis = 0;
-    bool hitAnything = false;
-    if (depth[(px.y/4) * 3840 + (px.x/4)]==4096) {
-        
-        frame[px.y * 3840 + px.x] = color;
-        return;
-    }
-    for (int i = 0; i < 960; i++) {
-        int lod;
-        uint v = readVoxelData(ivec3(cell),lod);
+    float opaqueDistance = float(depth[pixelIndex]) / dot(rayDir, camForward);
+    float firstWaterDistance = -1.0;
+    vec3 surfaceNormal = vec3(0.0, 1.0, 0.0);
+    float waterThickness = 0.0;
 
-        float distanceTravelled = distance(floor(camPos),cell);
-        if (any(lessThan(cell, ivec3(0))) ||
-            cell.x >= wx * chunkSize ||
-            cell.y >= wy * chunkSize ||
-            cell.z >= wz * chunkSize || 
-            distanceTravelled>960)
-            break;   
-            
+    for (int i = 0; i < 1000; i++) {
+        vec3 entryTimes = nextCrossing - crossingStep;
+        float enterDistance = max(max(max(entryTimes.x, entryTimes.y), entryTimes.z), 0.0);
+        if (enterDistance >= opaqueDistance) break;
 
-        ivec3 chunk = ivec3(cell) / chunkSize;
-        int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
+        int regionLod;
+        uint voxel = readVoxelData(ivec3(cell), regionLod);
 
-        if (handles[index].lod == 0) { 
-            skipChunk(cell, tMax, stepDir, tDelta);
-            continue;
-        }
-        if (v == 10) {
-                
-            color = packedColors[v-1];
-            hitAnything = true;
+        if (any(lessThan(cell, vec3(0))) ||
+            cell.x >= float(wx * chunkSize) ||
+            cell.y >= float(wy * chunkSize) ||
+            cell.z >= float(wz * chunkSize) ||
+            enterDistance > 1000.0)
             break;
-        }
-        bvec3 mask = lessThanEqual(tMax.xyz, min(tMax.yzx, tMax.zxy));
 
-        ivec3 stepMask = ivec3(mask);
-        cell += stepDir * stepMask;
-        tMax += tDelta * vec3(stepMask);
+        if (regionLod == 0) { skipChunk(cell, nextCrossing, stepDir, crossingStep); continue; }
+        if (voxel != 0u && voxel != 10u) break;
 
-    }
-    if (!hitAnything) {
-        
-        for (int i = 0; i < 4096-960; i++) {
-            int lod;
-            uint v = readVoxelData(ivec3(cell),lod);
-            float distanceTravelled = distance(floor(camPos),cell);
-            if (any(lessThan(cell, ivec3(0))) ||
-                cell.x >= wx * chunkSize ||
-                cell.y >= wy * chunkSize ||
-                cell.z >= wz * chunkSize || 
-                distanceTravelled>4096)
-                break;   
-            
+        float exitDistance = min(nextCrossing.x, min(nextCrossing.y, nextCrossing.z));
 
-            ivec3 chunk = ivec3(cell) / chunkSize;
-            int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-
-            if (handles[index].lod == 0) { 
-                skipChunk(cell, tMax, stepDir, tDelta);
-                continue;
+        if (voxel == 10u) {
+            if (firstWaterDistance < 0.0) {
+                firstWaterDistance = enterDistance;
+                if (enterDistance > 0.0) {
+                    vec3 enteredAxis = vec3(equal(entryTimes, vec3(enterDistance)));
+                    surfaceNormal = -normalize(enteredAxis * vec3(stepDir));
+                }
             }
-            
-            if (v == 10) {
-                
-                color = packedColors[v-1];
-                hitAnything = true;
-                break;
-            }
-
-            cell += rd*float(lod);
-
+            waterThickness += max(min(exitDistance, opaqueDistance) - enterDistance, 0.0);
         }
+
+        ivec3 axisToStep = ivec3(lessThanEqual(nextCrossing.xyz, min(nextCrossing.yzx, nextCrossing.zxy)));
+        cell += stepDir * axisToStep;
+        nextCrossing += crossingStep * vec3(axisToStep);
     }
-    
-    int distanceTravelled = int(dot(cell-camPos, camForward));
-    if (distanceTravelled<depth[px.y * 3840 + px.x] && hitAnything) {
-    
-        depth[px.y * 3840 + px.x] = distanceTravelled;
-        frame[px.y * 3840 + px.x] = color;
-        pos[px.y * 3840 + px.x] = vec3(cell);
-        int lod;
-        voxelId[px.y * 3840 + px.x] = 10;
+
+    if (firstWaterDistance < 0.0) return;
+
+    vec3 hitPosition = camPos + rayDir * firstWaterDistance;
+    if (surfaceNormal.y > 0.5) {
+        float rippleX = float(hashVec3(floor(hitPosition * 4.0) + float(frameIndex / 8))) / 4294967295.0;
+        float rippleZ = float(hashVec3(floor(hitPosition * 4.0).zxy + float(frameIndex / 8))) / 4294967295.0;
+        surfaceNormal = normalize(surfaceNormal + 0.08 * vec3(rippleX - 0.5, 0.0, rippleZ - 0.5));
     }
-    
+
+    float cosIncidence = clamp(dot(-rayDir, surfaceNormal), 0.0, 1.0);
+    float fresnel = 0.02 + 0.98 * pow(1.0 - cosIncidence, 5.0);
+
+    vec2 refractionOffset = surfaceNormal.xz * 6.0 * (1.0 - cosIncidence * 0.5);
+    ivec2 refractedPixel = clamp(pixel + ivec2(refractionOffset), ivec2(0), ivec2(renderWidth - 1, renderHeight - 1));
+    int refractedIndex = refractedPixel.y * 3840 + refractedPixel.x;
+    bool refractedSampleIsValid = float(depth[refractedIndex]) > firstWaterDistance * dot(rayDir, camForward);
+
+    vec3 background = unpackRGBA8(frame[refractedSampleIsValid ? refractedIndex : pixelIndex]).rgb;
+    vec3 transmittance = exp(-waterAbsorb * waterThickness);
+    vec3 skyColor = vec3(0.53, 0.75, 0.95);
+    vec3 waterBody = background * transmittance + waterScatter * skyColor * (1.0 - transmittance);
+
+    vec3 finalColor = mix(waterBody, skyColor, fresnel);
+
+    frame[pixelIndex] = packRGBA8(vec4(finalColor, 1.0));
+
+    int waterDistance = int(dot(cell - camPos, camForward));
+    if (waterDistance < depth[pixelIndex]) {
+        depth[pixelIndex] = waterDistance;
+    }
 }
