@@ -49,6 +49,7 @@ class App {
 	int waterUpdateFrequency = 4;
 	int* containsFluids;
 	Math::IVector3 *waterSimulationBatch;
+	Math::IVector3 currentBatch[1024 * 1024];
 	int lastBatch = 0;
 	bool batchWater = false;
 public:
@@ -1095,8 +1096,23 @@ public:
 		}
 	}
 	void SimulateFluidObjects() {
+
 		Anubis::SwitchShaderStage(shaders.display.shaderId);
-		shaders.display.UpdateSSBO(11, 0, mwx * mwy * mwz, 0);
+
+		glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
+
+		int zero = 0;
+
+		glClearBufferData(
+			GL_SHADER_STORAGE_BUFFER,
+			GL_R32I,
+			GL_RED_INTEGER,
+			GL_INT,
+			&zero
+		);
+
+		glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT); 
+		
 		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
 		int dispatchSize = 960 / 32;
 
@@ -1115,32 +1131,39 @@ public:
 			shaders.simulateWater.Use(dispatchSize * 2, wy, dispatchSize * 2);
 		}
 		else {
-			Math::IVector3 currentBatch[1024];
 			int currentBatchId = 0;
 			for (int i = 0; i < lastBatch; i++) {
-				if (currentBatchId >= 1024) {
+				if (currentBatchId >= 1024*1024) {
+					Anubis::SwitchShaderStage(shaders.display.shaderId);
+					shaders.display.UpdateSSBO(10, currentBatch, 1024*1024*sizeof(Math::IVector3), 0);
+
 					Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
 					shaders.simulateWaterBatched.SetInt(wx, "wx");
 					shaders.simulateWaterBatched.SetInt(wy, "wy");
 					shaders.simulateWaterBatched.SetInt(wz, "wz");
 					shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
-					shaders.simulateWaterBatched.Use(lastBatch, 1, 1);
+					shaders.simulateWaterBatched.Use(currentBatchId, 1, 1);
 					currentBatchId = 0;
 				}
-				currentBatch[i] = waterSimulationBatch[i];
+				currentBatch[currentBatchId] = waterSimulationBatch[i];
 				currentBatchId++;
 			}
 
-			if (currentBatchId >= 1024) {
+
+			if (currentBatchId > 0) {
+				Anubis::SwitchShaderStage(shaders.display.shaderId);
+				shaders.display.UpdateSSBO(10, currentBatch, currentBatchId * sizeof(Math::IVector3), 0);
+
 				Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
 				shaders.simulateWaterBatched.SetInt(wx, "wx");
 				shaders.simulateWaterBatched.SetInt(wy, "wy");
 				shaders.simulateWaterBatched.SetInt(wz, "wz");
 				shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
-				shaders.simulateWaterBatched.Use(lastBatch, 1, 1);
+				shaders.simulateWaterBatched.Use(currentBatchId, 1, 1);
 				currentBatchId = 0;
 			}
 		}
+
 		if (batchWater) {
 
 			Anubis::SwitchShaderStage(shaders.display.shaderId);
@@ -1159,17 +1182,19 @@ public:
 			int updateAble = 0;
 			int shouldUpdate = 0;
 			for (int x = 0; x < wx; x++) {
-				for (int y = 0; y < wy; y++) {
-					for (int z = 0; z < wz; z++) {
-						int chunkId = y * (wx * wz) + z * wx + x;
-						if (containsFluids[chunkId] == 0) {
-							world.chunkData[chunkId].lastChunkWaterActivity += 1;
-						}
-						else {
-							world.chunkData[chunkId].lastChunkWaterActivity = 0;
-						}
-						if (world.chunkData[chunkId].lastChunkWaterActivity < 3) {
-							shouldUpdate++;
+				for (int z = 0; z < wz; z++) {
+					if (world.setLod[x][z]==1) {
+						for (int y = 0; y < wy; y++) {
+							int chunkId = y * (wx * wz) + z * wx + x;
+							if (containsFluids[chunkId] == 0) {
+								world.chunkData[chunkId].lastChunkWaterActivity += 1;
+							}
+							else {
+								world.chunkData[chunkId].lastChunkWaterActivity = 0;
+							}
+							if (world.chunkData[chunkId].lastChunkWaterActivity < 5) {
+								shouldUpdate++;
+							}
 						}
 					}
 				}
@@ -1177,18 +1202,23 @@ public:
 			if (shouldUpdate < 30 * 30 * wy / 2) {
 				int i = 0;
 				for (int x = 0; x < wx; x++) {
-					for (int y = 0; y < wy; y++) {
-						for (int z = 0; z < wz; z++) {
-							int chunkId = y * (wx * wz) + z * wx + x;
-							if (world.chunkData[chunkId].lastChunkWaterActivity < 3) {
-								waterSimulationBatch[i] = { x,y,z };
-								i++;
+					for (int z = 0; z < wz; z++) {
+						if (world.setLod[x][z] == 1) {
+							for (int y = 0; y < wy; y++) {
+								int chunkId = y * (wx * wz) + z * wx + x;
+								if (world.chunkData[chunkId].lastChunkWaterActivity < 5) {
+									waterSimulationBatch[i] = { x,y,z };
+									i++;
+								}
 							}
 						}
 					}
 				}
 
 				lastBatch = i;
+			}
+			else {
+				lastBatch = 0;
 			}
 			std::cout << "Update queue: " << shouldUpdate << "\n";
 			std::cout << "Batched Update: " << updateAble << " Naive Update: " << dispatchSize * wy * 2 * dispatchSize * 2 << "\n";

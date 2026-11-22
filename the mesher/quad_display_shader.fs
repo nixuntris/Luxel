@@ -54,7 +54,7 @@ layout(std430, binding = 11) buffer FluidSimulationData {
 };
 
 layout(std430, binding = 10) buffer GPUBatch {
-    ivec3 gpuBatch[1024];
+    int gpuBatch[1024*1024];
 };
 uint packRGBA8(vec4 color)
 {

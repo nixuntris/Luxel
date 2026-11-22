@@ -2,9 +2,12 @@
 #extension GL_ARB_bindless_texture : require
 #extension GL_ARB_shader_ballot : require
 #extension GL_ARB_shader_group_vote : require
-layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
-
 const int chunkSize = 32;
+
+const int groupSizeX = 8;
+const int groupSizeY = 8;
+const int groupSizeZ = 8;
+layout (local_size_x = groupSizeX, local_size_y = groupSizeY, local_size_z = groupSizeZ) in;
 
 layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
@@ -48,30 +51,16 @@ uint readWaterData(ivec3 pos) {
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
 
-    uvec2 fluidhandle = handles[index].fluidHandle;
-    if (fluidhandle == uvec2(0))
+    uvec2 handle = handles[index].fluidHandle;
+
+    if (handle == uvec2(0))
         return 0u;
 
     ivec3 lp = pos & (chunkSize - 1);
     int nibbleIndex = lp.x & 1;
     lp.x /= 2;
 
-    uint r = 0u;
-    bool pending = true;
-
-    while (anyInvocationARB(pending)) {
-        if (pending) {
-            uvec2 cur = uvec2(
-                readFirstInvocationARB(fluidhandle.x),
-                readFirstInvocationARB(fluidhandle.y)
-            );
-
-            if (fluidhandle == cur) {
-                r = imageLoad(uimage3D(cur), lp).x;
-                pending = false;
-            }
-        }
-    }
+    uint r = imageLoad(uimage3D(handle), lp).x;
 
     return (r >> (uint(nibbleIndex) * 4u)) & 0x0Fu;
 }
@@ -85,10 +74,10 @@ uint readVoxelData(ivec3 pos, inout int lod) {
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
     int regionLod = handles[index].lod;
     lod = regionLod;
-    
+
     uvec2 fluidhandle = handles[index].fluidHandle;
     if (fluidhandle!=uvec2(0)) {
-        
+
         uimage3D fluidMap = uimage3D(fluidhandle);
         ivec3 lp = (pos & (chunkSize - 1));
         int nibbleIndex = lp.x & 1;  
@@ -110,7 +99,7 @@ uint readVoxelData(ivec3 pos, inout int lod) {
         if (nibble!=0) return 10;
     }
     if (regionLod==32) return handles[index].filled; 
-    
+
     uvec2 handle = handles[index].handle;
     if (handle != uvec2(0)) {
         uimage3D fluidMap = uimage3D(handle);
@@ -177,7 +166,7 @@ void setNibbleData(ivec3 pos, uint value) {
 
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-    
+
     containsFluids[index] = 1;
     int regionLod = handles[index].lod;
 
@@ -302,15 +291,15 @@ void main() {
     int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; 
 
     if (handles[index].lod!=1 && handles[index].lod!=32) return;
-    for (int x = 0; x < 4; x++) {
-        for (int z = 0; z <4; z++) {
-            for (int y = 0; y < 4; y++) {
-                
-                ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*4+ivec3(x,y,z);
+    for (int x = 0; x < 32/groupSizeX; x++) {
+        for (int z = 0; z < 32/groupSizeZ; z++) {
+            for (int y = 0; y < 32/groupSizeY; y++) {
+
+                ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*ivec3(32/groupSizeX,32/groupSizeY,32/groupSizeZ)+ivec3(x,y,z);
                 ivec3 globalPosition = voxel+chunkPosition*chunkSize;
                 int lodr;
-                uint id = readVoxelData(globalPosition,lodr);
-                if (id == 10) {
+                uint id = readWaterData(globalPosition);
+                if (id != 0) {
                     containsFluids[index] = 1;
                     if (!UpdateCellFalling(globalPosition)) {
                         UpdateCellWater(globalPosition);
