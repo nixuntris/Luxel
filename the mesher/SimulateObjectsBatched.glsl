@@ -288,31 +288,30 @@ bool UpdateCellWater(ivec3 position) {
 layout(std430, binding = 10) buffer GPUBatch {
     int gpuBatch[1024*1024];
 };
+
+uniform int workGroupIDOffset;
 void main() {
     ivec3 chunkPosition = ivec3(
         gpuBatch[gl_WorkGroupID.x * 3 + 0],
         gpuBatch[gl_WorkGroupID.x * 3 + 1],
         gpuBatch[gl_WorkGroupID.x * 3 + 2]
     );
-    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; 
+    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x;
 
-    if (handles[index].lod!=1 && handles[index].lod!=32) return;
-    for (int x = 0; x < 32/(32/groupSizeX); x++) {
-        for (int z = 0; z < 32/(32/groupSizeZ); z++) {
-            for (int y = 0; y < 32/(32/groupSizeY); y++) {
+    if (handles[index].lod != 1 && handles[index].lod != 32) return;
 
-                ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*ivec3(32/groupSizeX,32/groupSizeY,32/groupSizeZ)+ivec3(x,y,z);
-                ivec3 globalPosition = voxel+chunkPosition*chunkSize;
-                int lodr;
-                uint id = readWaterData(globalPosition);
-                if (id != 0) {
+    const ivec3 cell = ivec3(32/groupSizeX, 32/groupSizeY, 32/groupSizeZ);
+    for (int x = 0; x < cell.x; x++) {
+        for (int z = 0; z < cell.z; z++) {
+            for (int y = 0; y < cell.y; y++) {
+                ivec3 voxel = ivec3(gl_LocalInvocationID.xyz) * cell + ivec3(x, y, z);
+                ivec3 globalPosition = voxel + chunkPosition * chunkSize;
+                if (readWaterData(globalPosition) != 0) {
                     containsFluids[index] = 1;
-                    if (!UpdateCellFalling(globalPosition)) {
+                    if (!UpdateCellFalling(globalPosition))
                         UpdateCellWater(globalPosition);
-                    }
                 }
             }
         }
     }
-
 }

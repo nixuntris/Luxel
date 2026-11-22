@@ -106,9 +106,15 @@ uint readVoxelData(ivec3 pos, inout int lod) {
         ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
         uint r = 0u;
         bool pending = true;
+        uvec2 cur = handle;
+
         while (anyInvocationARB(pending)) {
             if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(handle.x), readFirstInvocationARB(handle.y));
+                cur = uvec2(
+                    readFirstInvocationARB(handle.x),
+                    readFirstInvocationARB(handle.y)
+                );
+
                 if (handle == cur) {
                     r = imageLoad(uimage3D(cur), lp).x;
                     pending = false;
@@ -286,8 +292,16 @@ bool UpdateCellWater(ivec3 position) {
     return false;
 }
 
+uniform int workGroupIDOffset;
+uniform int workGroupSpread;
 void main() {
-    ivec3 chunkPosition = ivec3(gl_WorkGroupID.xyz)+ivec3(cameraOffset);
+    ivec3 workGroup = ivec3(gl_WorkGroupID.xyz);
+
+    workGroup.x = workGroup.x * workGroupSpread + workGroupIDOffset;
+
+    if (workGroup.x >= wx)
+        return;
+    ivec3 chunkPosition = workGroup + ivec3(cameraOffset);
     int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; 
 
     if (handles[index].lod!=1 && handles[index].lod!=32) return;

@@ -52,6 +52,7 @@ class App {
 	Math::IVector3 currentBatch[1024 * 1024];
 	int lastBatch = 0;
 	bool batchWater = false;
+	int workInFrame = 0;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -1096,22 +1097,18 @@ public:
 		}
 	}
 	void SimulateFluidObjects() {
+		if (workInFrame == 0) {
 
-		Anubis::SwitchShaderStage(shaders.display.shaderId);
+			Anubis::SwitchShaderStage(shaders.display.shaderId);
 
-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
 
-		int zero = 0;
+			int zero = 0;
 
-		glClearBufferData(
-			GL_SHADER_STORAGE_BUFFER,
-			GL_R32I,
-			GL_RED_INTEGER,
-			GL_INT,
-			&zero
-		);
+			glClearBufferData(GL_SHADER_STORAGE_BUFFER,GL_R32I,GL_RED_INTEGER,GL_INT,&zero);
 
-		glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT); 
+			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+		}
 		
 		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
 		int dispatchSize = 960 / 32;
@@ -1124,47 +1121,48 @@ public:
 		if (lastBatch == 0 || !batchWater) {
 
 			Anubis::SwitchShaderStage(shaders.simulateWater.programID);
+
 			shaders.simulateWater.SetInt(wx, "wx");
 			shaders.simulateWater.SetInt(wy, "wy");
 			shaders.simulateWater.SetInt(wz, "wz");
 			shaders.simulateWater.SetVector3(offset, "cameraOffset");
-			shaders.simulateWater.Use(dispatchSize * 2, wy, dispatchSize * 2);
+
+			shaders.simulateWater.SetInt(workInFrame, "workGroupIDOffset");
+			shaders.simulateWater.SetInt(waterUpdateFrequency, "workGroupSpread");
+
+			int totalGroupsX = dispatchSize * 2;
+
+			int groupsPerFrame = (totalGroupsX - workInFrame + waterUpdateFrequency - 1) / waterUpdateFrequency;
+
+			groupsPerFrame = groupsPerFrame > 0 ? groupsPerFrame : 0;
+
+			shaders.simulateWater.Use(groupsPerFrame,wy,dispatchSize * 2);
 		}
 		else {
-			int currentBatchId = 0;
-			for (int i = 0; i < lastBatch; i++) {
-				if (currentBatchId >= 1024*1024) {
-					Anubis::SwitchShaderStage(shaders.display.shaderId);
-					shaders.display.UpdateSSBO(10, currentBatch, 1024*1024*sizeof(Math::IVector3), 0);
-
-					Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
-					shaders.simulateWaterBatched.SetInt(wx, "wx");
-					shaders.simulateWaterBatched.SetInt(wy, "wy");
-					shaders.simulateWaterBatched.SetInt(wz, "wz");
-					shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
-					shaders.simulateWaterBatched.Use(currentBatchId, 1, 1);
-					currentBatchId = 0;
-				}
-				currentBatch[currentBatchId] = waterSimulationBatch[i];
-				currentBatchId++;
-			}
-
-
-			if (currentBatchId > 0) {
+			auto flush = [&](int count) {
 				Anubis::SwitchShaderStage(shaders.display.shaderId);
-				shaders.display.UpdateSSBO(10, currentBatch, currentBatchId * sizeof(Math::IVector3), 0);
+				shaders.display.UpdateSSBO(10, currentBatch, count * sizeof(Math::IVector3), 0);
 
 				Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
 				shaders.simulateWaterBatched.SetInt(wx, "wx");
 				shaders.simulateWaterBatched.SetInt(wy, "wy");
 				shaders.simulateWaterBatched.SetInt(wz, "wz");
-				shaders.simulateWaterBatched.SetIVector3Array(currentBatch, currentBatchId, "chunkPositions");
-				shaders.simulateWaterBatched.Use(currentBatchId, 1, 1);
-				currentBatchId = 0;
-			}
-		}
+				shaders.simulateWaterBatched.Use(count, 1, 1);
+			};
 
-		if (batchWater) {
+			const int maxBatch = 1024 * 1024;
+			int n = 0;
+			for (int i = workInFrame; i < lastBatch; i += waterUpdateFrequency) {
+				currentBatch[n++] = waterSimulationBatch[i];
+				if (n == maxBatch) {
+					flush(n);
+					n = 0;
+				}
+			}
+			if (n > 0) flush(n);
+		}
+		if (batchWater && workInFrame == waterUpdateFrequency - 1) {
+
 
 			Anubis::SwitchShaderStage(shaders.display.shaderId);
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
@@ -1220,9 +1218,8 @@ public:
 			else {
 				lastBatch = 0;
 			}
-			std::cout << "Update queue: " << shouldUpdate << "\n";
-			std::cout << "Batched Update: " << updateAble << " Naive Update: " << dispatchSize * wy * 2 * dispatchSize * 2 << "\n";
 		}
+		workInFrame = (workInFrame + 1) % waterUpdateFrequency;
 	}
 	void Run(bool pregenerate=false) {
 		
@@ -1250,7 +1247,7 @@ public:
 				viewPort.camera.UpdateFREE(window.GetMousePos(), oldMouse, window);
 			}
 
-			if (frame % waterUpdateFrequency == 0 && simulateWater) {
+			if (simulateWater) {
 				waterSimulation.Start();
 				SimulateFluidObjects();
 				simulationTime = waterSimulation.Stop();
