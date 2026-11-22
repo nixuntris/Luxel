@@ -53,6 +53,7 @@ class App {
 	int lastBatch = 0;
 	bool batchWater = false;
 	int workInFrame = 0;
+	bool waterSimulationEnabled = true;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -86,7 +87,6 @@ public:
 		totalTriangleCount = 59259259/2;
 		totalMeshletCount = totalTriangleCount/64;
 		shaders.display.CreateSSBO(3, sizeof(world.handle));
-		shaders.display.CreateSSBO(11, mwx*mwy*mwz*sizeof(int));
 		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
 		shaders.display.CreatePersistentSSBO(5, (totalMeshletCount + 1) * sizeof(int) * 8);
 		shaders.display.CreatePersistentSSBO(2, totalTriangleCount * sizeof(uint32_t) * 8);
@@ -98,8 +98,7 @@ public:
 		viewPort.shaders = &shaders;
 		structureManager.Init();
 		chunks = (Chunk*)MemAlloc(wx * wz * wy * sizeof(Chunk));
-		containsFluids = (int*)MemAlloc(mwx * mwz * mwy * sizeof(int));
-		for (int i = 0; i < mwx * mwz * mwy; i++) containsFluids[i] = 1;
+
 	}
 	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs,double waterMs, int trianglesRendered) {
 		if (window.GetKeyPressed(KEY_K) && releasedMenu) {
@@ -570,6 +569,10 @@ public:
 				if (ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Things like trees with changing animations, however they are debug and aren't necessarily what you expect.\n");
 				}
+				ImGui::Checkbox("Simulate Water", &waterSimulationEnabled);
+				if (ImGui::IsItemHovered()) {
+					ImGui::SetTooltip("Currently not recommended for weaker systems.\n");
+				}
 				ImGui::Checkbox("Rasterize/Raytrace", &viewPort.raytracePrimaryRays);
 				ImGui::Unindent();
 				ImGui::Spacing();
@@ -649,6 +652,9 @@ public:
 				viewPort.camera.position = { (double)wx * chunkSize/2,200,(double)wz * chunkSize / 2 };
 				waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
 
+				shaders.display.CreateSSBO(11, wx* wy* wz * sizeof(int));
+				containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int));
+				for (int i = 0; i < wx * wz * wy; i++) containsFluids[i] = 1;
 				if (pregenerate) {
 					Run(true);
 				}
@@ -853,8 +859,9 @@ public:
 				for (int nz = 0; nz < wz; nz++) {
 					if (world.setLod[nx][nz] == 1) {
 						for (int ny = 0; ny < wy; ny++) {
+							
 							int id = ny * (wx * wz) + nz * wx + nx;
-							if (world.chunkData[id].lod != 32) { //since lod 32 works as a fully filled chunk
+							if (world.chunkData[id].lod != 32 && !world.chunkData[id].skipped) { //since lod 32 works as a fully filled chunk
 								// 4 bits per voxel
 								// 0 - set or not set
 								// 0 - direction set to left
@@ -1285,7 +1292,7 @@ public:
 			Anubis::GpuTimer raster;
 			raster.Start();
 				
-			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution);
+			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true);
 			trianglesRendered = triangleCount;
 			rasterTimeMs = raster.Stop();
 			AnimatedObject objects[maxAnimationBatch];

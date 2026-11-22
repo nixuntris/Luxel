@@ -314,9 +314,13 @@ void main() {
                 int lodr;
                 uint id = readWaterData(globalPosition);
                 if (id != 0) {
-                    containsFluids[index] = 1;
                     if (!UpdateCellFalling(globalPosition)) {
-                        UpdateCellWater(globalPosition);
+                        if (UpdateCellWater(globalPosition)) {
+                            containsFluids[index] = 1; 
+                        }
+                    }
+                    else {
+                        containsFluids[index] = 1;
                     }
                 }
             }

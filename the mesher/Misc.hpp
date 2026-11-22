@@ -11,8 +11,7 @@ const int mwz = 300;
 const int maxAnimationObjects = 1024;
 const int maxGPUBatch = 1024 * 1024;
 const int maxGrassCount = 1449303 * 2;
-const int waterSimulationResolution = 1; //the larger the smaller 1/resolution
-const bool waterSimulationEnabled = true;
+
 const std::vector<Color> palette = {
 	{0, 255, 0, 255},       // 0: GREEN GRASS
 	{128, 128, 128, 255},   // 1: GRAY

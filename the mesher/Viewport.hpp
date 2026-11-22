@@ -77,7 +77,7 @@ struct ViewPort {
 
 		shaders->secondaryRaysRender.SetUIntArray(palette.data(), palette.size(), "packedColors");
 	}
-	inline void RasterizeMeshes(Matrix matView, Vector3 pos, Vector3 forward, const std::vector<uint32_t> palette, int frame, int triangleCount, Math::IVector2 resolution) {
+	inline void RasterizeMeshes(Matrix matView, Vector3 pos, Vector3 forward, const std::vector<uint32_t> palette, int frame, int triangleCount, Math::IVector2 resolution, bool renderWater) {
 		if (raytracePrimaryRays) {
 
 		/*	Anubis::SwitchShaderStage(shaders->prepassPrimaryRays.programID);
@@ -129,7 +129,7 @@ struct ViewPort {
 
 			shaders->rasterizer.Use(floor(triangleCount), 1, 1);
 		}
-		if (waterSimulationEnabled) {
+		if (renderWater) {
 			Anubis::SwitchShaderStage(shaders->renderWater.programID);
 			shaders->renderWater.SetVector3({ pos.x,pos.y,pos.z }, "camPos");
 			shaders->renderWater.SetVector3({ forward.x,forward.y,forward.z }, "camForward");
