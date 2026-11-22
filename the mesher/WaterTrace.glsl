@@ -21,7 +21,7 @@ struct Region {
     int lod;
     int filled;
 };
-
+uniform int simulationResolution;
 layout(std430, binding = 3) buffer BitHandles {
     Region handles[];
 };
@@ -35,101 +35,66 @@ uniform vec3 camPos;
 uniform mat4 matView;
 uniform mat4 matProj;
 uniform int frameIndex;
-
-uint readWaterData(ivec3 pos) {
-    if (any(lessThan(pos, ivec3(0))) ||
-        pos.x >= wx * chunkSize ||
-        pos.y >= wy * chunkSize ||
-        pos.z >= wz * chunkSize)
-        return 0u;
-
-    ivec3 chunk = pos / chunkSize;
-    int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-
-    uvec2 fluidhandle = handles[index].fluidHandle;
-    if (fluidhandle == uvec2(0))
-        return 0u;
-
-    ivec3 lp = pos & (chunkSize - 1);
-    int nibbleIndex = lp.x & 1;
-    lp.x /= 2;
+uint readWaterCell(uvec2 fluidhandle, ivec3 lp) {
+    ivec3 cell = lp / simulationResolution;
+    int nibbleIndex = cell.x & 1;
+    ivec3 texel = ivec3(cell.x >> 1, cell.y, cell.z);
 
     uint r = 0u;
     bool pending = true;
-
     while (anyInvocationARB(pending)) {
         if (pending) {
-            uvec2 cur = uvec2(
-                readFirstInvocationARB(fluidhandle.x),
-                readFirstInvocationARB(fluidhandle.y)
-            );
-
+            uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x),
+                              readFirstInvocationARB(fluidhandle.y));
             if (fluidhandle == cur) {
-                r = imageLoad(uimage3D(cur), lp).x;
+                r = imageLoad(uimage3D(cur), texel).x;
                 pending = false;
             }
         }
     }
-
     return (r >> (uint(nibbleIndex) * 4u)) & 0x0Fu;
 }
 
 uint readVoxelData(ivec3 pos, inout int lod) {
+    lod = 0;
     if (any(lessThan(pos, ivec3(0))) ||
         pos.x >= wx * chunkSize ||
         pos.y >= wy * chunkSize ||
         pos.z >= wz * chunkSize)
-        return 0u;   
+        return 0u;
+
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
     int regionLod = handles[index].lod;
     lod = regionLod;
-    
+    ivec3 lp = pos & (chunkSize - 1);
+    uint solid = 0u;
+    if (regionLod == 32) {
+        solid = uint(handles[index].filled);
+    } else if (regionLod != 0) {
+        uvec2 handle = handles[index].handle;
+        if (handle != uvec2(0)) {
+            ivec3 tp = lp / regionLod;
+            bool pending = true;
+            while (anyInvocationARB(pending)) {
+                if (pending) {
+                    uvec2 cur = uvec2(readFirstInvocationARB(handle.x),
+                                      readFirstInvocationARB(handle.y));
+                    if (handle == cur) {
+                        solid = imageLoad(uimage3D(cur), tp).x;
+                        pending = false;
+                    }
+                }
+            }
+        }
+    }
+    if (solid != 0u) return solid;
     uvec2 fluidhandle = handles[index].fluidHandle;
-    if (fluidhandle!=uvec2(0)) {
-        
-        uimage3D fluidMap = uimage3D(fluidhandle);
-        ivec3 lp = (pos & (chunkSize - 1));
-        int nibbleIndex = lp.x & 1;  
-        lp.x /= 2;
-        uint r = 0u;
-        bool pending = true;
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x), readFirstInvocationARB(fluidhandle.y));
-                if (fluidhandle == cur) {
-                    r = imageLoad(uimage3D(cur), lp).x;
-                    pending = false;
-                }
-            }
-        }
-        uint byteIndex  = lp.x;        
-        uint shift = nibbleIndex*4;
-        uint nibble  = (r >> shift) & 0x0F;
-        if (nibble!=0) return 10;
-    }
-    if (regionLod==32) return handles[index].filled; 
-    
-    uvec2 handle = handles[index].handle;
-    if (handle != uvec2(0)) {
-        uimage3D fluidMap = uimage3D(handle);
-        ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
-        uint r = 0u;
-        bool pending = true;
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(handle.x), readFirstInvocationARB(handle.y));
-                if (handle == cur) {
-                    r = imageLoad(uimage3D(cur), lp).x;
-                    pending = false;
-                }
-            }
-        }
-        return r;
-    }
+    if (fluidhandle != uvec2(0) && readWaterCell(fluidhandle, lp) != 0u)
+        return 10u;
+
     return 0u;
 }
-
 uniform uint packedColors[1024];
 uint hashVec3(vec3 v) {
     uint x = uint(v.x);

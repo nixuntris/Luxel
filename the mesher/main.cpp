@@ -14,7 +14,7 @@
 #include "Structure.hpp"
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
-
+const int waterResolution = 2;
 class App {
 	Anubis::Window window;
 	Chunk* chunks;
@@ -845,12 +845,12 @@ public:
 		}
 		if (waterSimulationEnabled) {
 
-			uint8_t* preset = (uint8_t*)MemAlloc(16 * 32 * 32);
-			for (int i = 0; i < 16 * 32 * 32; i++) preset[i] = 0;
-			for (int x = 0; x < 16; x++) {
-				for (int z = 0; z < 32; z++) {
-					int k = 24;
-					for (int y = -4; y < 4; y++) preset[(x)+(y + k) * 16 + (z) * 16 * 32] |= (1 << 4);
+			uint8_t* preset = (uint8_t*)MemAlloc((16/ waterResolution) * (32/ waterResolution) * (32/ waterResolution));
+			for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
+			for (int x = 0; x < (16 / waterResolution); x++) {
+				for (int z = 0; z < 32/ waterResolution; z++) {
+					int k = 24 / waterResolution;
+					for (int y = -4 / waterResolution; y < 4 / waterResolution; y++) preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
 				}
 			}
 
@@ -868,7 +868,7 @@ public:
 								// 0 - direction set to right
 								// 0 - direction set to up
 								// 0 - direction set to down
-								world.chunkData[id].waterMap.Clear({ 32 / 2,32,32 });
+								world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
 								world.chunkData[id].waterMap.Upload(preset);
 								world.chunkData[id].waterMap.GetBindlessHandle();
 								world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
@@ -1132,6 +1132,8 @@ public:
 			shaders.simulateWater.SetInt(wx, "wx");
 			shaders.simulateWater.SetInt(wy, "wy");
 			shaders.simulateWater.SetInt(wz, "wz");
+			shaders.simulateWater.SetInt(wz, "wz");
+			shaders.simulateWater.SetInt(waterResolution, "waterResolution");
 			shaders.simulateWater.SetVector3(offset, "cameraOffset");
 
 			shaders.simulateWater.SetInt(workInFrame, "workGroupIDOffset");
@@ -1154,6 +1156,7 @@ public:
 				shaders.simulateWaterBatched.SetInt(wx, "wx");
 				shaders.simulateWaterBatched.SetInt(wy, "wy");
 				shaders.simulateWaterBatched.SetInt(wz, "wz");
+				shaders.simulateWaterBatched.SetInt(waterResolution, "waterResolution");
 				shaders.simulateWaterBatched.Use(count, 1, 1);
 			};
 
@@ -1292,7 +1295,7 @@ public:
 			Anubis::GpuTimer raster;
 			raster.Start();
 				
-			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true);
+			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true, simulationResolution);
 			trianglesRendered = triangleCount;
 			rasterTimeMs = raster.Stop();
 			AnimatedObject objects[maxAnimationBatch];

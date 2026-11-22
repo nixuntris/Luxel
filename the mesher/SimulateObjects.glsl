@@ -9,6 +9,9 @@ const int groupSizeY = 8;
 const int groupSizeZ = 8;
 layout (local_size_x = groupSizeX, local_size_y = groupSizeY, local_size_z = groupSizeZ) in;
 
+uniform int waterResolution;
+int cellsPerChunk = chunkSize / waterResolution;
+
 layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
@@ -41,7 +44,53 @@ uniform vec3 camPos;
 uniform mat4 matView;
 uniform mat4 matProj;
 uniform int frameIndex;
-uint readWaterData(ivec3 pos) {
+uniform vec3 cameraOffset;
+uniform int workGroupIDOffset;
+uniform int workGroupSpread;
+
+bool cellInBounds(ivec3 cellPos) {
+    return !(any(lessThan(cellPos, ivec3(0))) ||
+             cellPos.x >= wx * cellsPerChunk ||
+             cellPos.y >= wy * cellsPerChunk ||
+             cellPos.z >= wz * cellsPerChunk);
+}
+
+int chunkIndexOfCell(ivec3 cellPos) {
+    ivec3 chunk = cellPos / cellsPerChunk;
+    return chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
+}
+
+uint readWaterData(ivec3 cellPos) {
+    if (!cellInBounds(cellPos))
+        return 0u;
+
+    int index = chunkIndexOfCell(cellPos);
+    uvec2 fluidhandle = handles[index].fluidHandle;
+    if (fluidhandle == uvec2(0))
+        return 0u;
+
+    ivec3 lc = cellPos & (cellsPerChunk - 1);
+    int nibbleIndex = lc.x & 1;
+    ivec3 texel = ivec3(lc.x >> 1, lc.y, lc.z);
+
+    uint r = 0u;
+    bool pending = true;
+    while (anyInvocationARB(pending)) {
+        if (pending) {
+            uvec2 cur = uvec2(
+                readFirstInvocationARB(fluidhandle.x),
+                readFirstInvocationARB(fluidhandle.y)
+            );
+            if (fluidhandle == cur) {
+                r = imageLoad(uimage3D(cur), texel).x;
+                pending = false;
+            }
+        }
+    }
+    return (r >> (uint(nibbleIndex) * 4u)) & 0x0Fu;
+}
+
+uint readSolidData(ivec3 pos) {
     if (any(lessThan(pos, ivec3(0))) ||
         pos.x >= wx * chunkSize ||
         pos.y >= wy * chunkSize ||
@@ -50,128 +99,46 @@ uint readWaterData(ivec3 pos) {
 
     ivec3 chunk = pos / chunkSize;
     int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
+    int regionLod = handles[index].lod;
 
-    uvec2 handle = handles[index].fluidHandle;
+    if (regionLod == 32)
+        return uint(handles[index].filled);
+    if (regionLod == 0 || regionLod == 3000)
+        return 0u;
 
+    uvec2 handle = handles[index].handle;
     if (handle == uvec2(0))
         return 0u;
 
-    ivec3 lp = pos & (chunkSize - 1);
-    int nibbleIndex = lp.x & 1;
-    lp.x /= 2;
-
-    uint r = imageLoad(uimage3D(handle), lp).x;
-
-    return (r >> (uint(nibbleIndex) * 4u)) & 0x0Fu;
-}
-uint readVoxelData(ivec3 pos, inout int lod) {
-    if (any(lessThan(pos, ivec3(0))) ||
-        pos.x >= wx * chunkSize ||
-        pos.y >= wy * chunkSize ||
-        pos.z >= wz * chunkSize)
-        return 0u;   
-    ivec3 chunk = pos / chunkSize;
-    int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-    int regionLod = handles[index].lod;
-    lod = regionLod;
-
-    uvec2 fluidhandle = handles[index].fluidHandle;
-    if (fluidhandle!=uvec2(0)) {
-
-        uimage3D fluidMap = uimage3D(fluidhandle);
-        ivec3 lp = (pos & (chunkSize - 1));
-        int nibbleIndex = lp.x & 1;  
-        lp.x /= 2;
-        uint r = 0u;
-        bool pending = true;
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                uvec2 cur = uvec2(readFirstInvocationARB(fluidhandle.x), readFirstInvocationARB(fluidhandle.y));
-                if (fluidhandle == cur) {
-                    r = imageLoad(uimage3D(cur), lp).x;
-                    pending = false;
-                }
-            }
-        }
-        uint byteIndex  = lp.x;        
-        uint shift = nibbleIndex*4;
-        uint nibble  = (r >> shift) & 0x0F;
-        if (nibble!=0) return 10;
-    }
-    if (regionLod==32) return handles[index].filled; 
-
-    uvec2 handle = handles[index].handle;
-    if (handle != uvec2(0)) {
-        uimage3D fluidMap = uimage3D(handle);
-        ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
-        uint r = 0u;
-        bool pending = true;
-        uvec2 cur = handle;
-
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                cur = uvec2(
-                    readFirstInvocationARB(handle.x),
-                    readFirstInvocationARB(handle.y)
-                );
-
-                if (handle == cur) {
-                    r = imageLoad(uimage3D(cur), lp).x;
-                    pending = false;
-                }
-            }
-        }
-        return r;
-    }
-    return 0u;
-}
-
-void setVoxelData(ivec3 pos, uint value) {
-    if (any(lessThan(pos, ivec3(0))) ||
-        pos.x >= wx * chunkSize ||
-        pos.y >= wy * chunkSize ||
-        pos.z >= wz * chunkSize)
-        return;
-
-    ivec3 chunk = pos / chunkSize;
-    int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
-
-    int regionLod = handles[index].lod;
-
-    if (regionLod == 32 || regionLod == 3000)
-        return;
-
-    uvec2 handle = handles[index].handle;
-
-    if (handle != uvec2(0)) {
-        ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
-
-        bool pending = true;
-
-        while (anyInvocationARB(pending)) {
-            if (pending) {
-                uvec2 cur = uvec2(
-                    readFirstInvocationARB(handle.x),
-                    readFirstInvocationARB(handle.y)
-                );
-
-                if (handle == cur) {
-                    imageStore(uimage3D(cur), lp, uvec4(value));
-                    pending = false;
-                }
+    ivec3 lp = (pos & (chunkSize - 1)) / regionLod;
+    uint r = 0u;
+    bool pending = true;
+    while (anyInvocationARB(pending)) {
+        if (pending) {
+            uvec2 cur = uvec2(
+                readFirstInvocationARB(handle.x),
+                readFirstInvocationARB(handle.y)
+            );
+            if (handle == cur) {
+                r = imageLoad(uimage3D(cur), lp).x;
+                pending = false;
             }
         }
     }
+    return r;
 }
-void setNibbleData(ivec3 pos, uint value) {
-    if (any(lessThan(pos, ivec3(0))) ||
-        pos.x >= wx * chunkSize ||
-        pos.y >= wy * chunkSize ||
-        pos.z >= wz * chunkSize)
+
+uint readCellSolid(ivec3 cellPos) {
+    if (!cellInBounds(cellPos))
+        return 1u;
+    return readSolidData(cellPos * waterResolution);
+}
+
+void setNibbleData(ivec3 cellPos, uint value) {
+    if (!cellInBounds(cellPos))
         return;
 
-    ivec3 chunk = pos / chunkSize;
-    int index = chunk.y * (wx * wz) + chunk.z * wx + chunk.x;
+    int index = chunkIndexOfCell(cellPos);
 
     containsFluids[index] = 1;
     int regionLod = handles[index].lod;
@@ -183,9 +150,9 @@ void setNibbleData(ivec3 pos, uint value) {
     if (handle == uvec2(0))
         return;
 
-    ivec3 lp = pos & (chunkSize - 1);
-    int nibbleIndex = lp.x & 1;      // 0 = low nibble, 1 = high nibble
-    lp.x /= 2;
+    ivec3 lc = cellPos & (cellsPerChunk - 1);
+    int nibbleIndex = lc.x & 1;
+    ivec3 texel = ivec3(lc.x >> 1, lc.y, lc.z);
 
     value &= 0x0Fu;
 
@@ -199,64 +166,55 @@ void setNibbleData(ivec3 pos, uint value) {
 
             if (handle == cur) {
                 uimage3D fluidMap = uimage3D(cur);
-
-                uint r = imageLoad(fluidMap, lp).x;
-
+                uint r = imageLoad(fluidMap, texel).x;
                 uint shift = uint(nibbleIndex) * 4u;
-                uint mask  = 0x0Fu << shift;
+                uint mask = 0x0Fu << shift;
                 r = (r & ~mask) | (value << shift);
-
-                imageStore(fluidMap, lp, uvec4(r));
+                imageStore(fluidMap, texel, uvec4(r));
                 pending = false;
             }
         }
     }
 }
-uniform vec3 cameraOffset;
-const ivec3 checkOffsets[5] = ivec3[5](
+
+const ivec3 fallOffsets[5] = ivec3[5](
     ivec3(0,-1,0),
     ivec3(-1,-1,0),
     ivec3(1,-1,0),
     ivec3(0,-1,-1),
     ivec3(0,-1,1)
 );
+
+const ivec3 flowDirections[4] = ivec3[4](
+    ivec3(-1, 0, 0),
+    ivec3(1, 0, 0),
+    ivec3(0, 0, -1),
+    ivec3(0, 0, 1)
+);
+
 bool UpdateCellFalling(ivec3 position) {
-    const ivec3 offsets[5] = ivec3[5](
-        ivec3(0,-1,0),
-        ivec3(-1,-1,0),
-        ivec3(1,-1,0),
-        ivec3(0,-1,-1),
-        ivec3(0,-1,1)
-    );
-
-    int lodr = 0;
-
     for (int i = 0; i < 5; i++) {
-        ivec3 target = position + offsets[i];
+        ivec3 target = position + fallOffsets[i];
 
-        uint bottomValue = readVoxelData(target, lodr);
+        if (!cellInBounds(target))
+            continue;
+
+        uint bottomValue = readCellSolid(target);
         uint waterBelow = readWaterData(target);
 
-        if (bottomValue == 0 && waterBelow == 0) {
-            setNibbleData(position, 0);
-            setNibbleData(target, 8);
+        if (bottomValue == 0u && waterBelow == 0u) {
+            setNibbleData(position, 0u);
+            setNibbleData(target, 8u);
             return true;
         }
     }
-
     return false;
 }
-bool UpdateCellWater(ivec3 position) {
-    const ivec3 directions[4] = ivec3[4](
-        ivec3(-1, 0, 0),
-        ivec3(1, 0, 0),
-        ivec3(0, 0, -1),
-        ivec3(0, 0, 1)
-    );
 
+bool UpdateCellWater(ivec3 position) {
     uint current = readWaterData(position);
 
-    if (current == 0)
+    if (current == 0u)
         return false;
 
     int previousDirection = int(current & 7u) - 1;
@@ -267,23 +225,25 @@ bool UpdateCellWater(ivec3 position) {
             direction == (previousDirection ^ 1))
             continue;
 
-        ivec3 target = position + directions[direction];
+        ivec3 target = position + flowDirections[direction];
 
-        int lodr = 0;
+        if (!cellInBounds(target))
+            continue;
 
-        uint targetVoxel = readVoxelData(target, lodr);
+        uint targetVoxel = readCellSolid(target);
         uint targetWater = readWaterData(target);
 
-        if (targetVoxel != 0 || targetWater != 0)
+        if (targetVoxel != 0u || targetWater != 0u)
             continue;
 
         ivec3 belowTarget = target + ivec3(0, -1, 0);
 
-        uint supportVoxel = readVoxelData(belowTarget, lodr);
+        uint supportVoxel = readCellSolid(belowTarget);
         uint supportWater = readWaterData(belowTarget);
-        if (supportVoxel == 0 && supportWater == 0)
+        if (supportVoxel == 0u && supportWater == 0u)
             continue;
-        setNibbleData(position, 0);
+
+        setNibbleData(position, 0u);
         setNibbleData(target, uint(9 + direction));
 
         return true;
@@ -292,8 +252,6 @@ bool UpdateCellWater(ivec3 position) {
     return false;
 }
 
-uniform int workGroupIDOffset;
-uniform int workGroupSpread;
 void main() {
     ivec3 workGroup = ivec3(gl_WorkGroupID.xyz);
 
@@ -302,21 +260,28 @@ void main() {
     if (workGroup.x >= wx)
         return;
     ivec3 chunkPosition = workGroup + ivec3(cameraOffset);
-    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x; 
+    int index = chunkPosition.y * (wx * wz) + chunkPosition.z * wx + chunkPosition.x;
 
-    if (handles[index].lod!=1 && handles[index].lod!=32) return;
-    for (int x = 0; x < 32/groupSizeX; x++) {
-        for (int z = 0; z < 32/groupSizeZ; z++) {
-            for (int y = 0; y < 32/groupSizeY; y++) {
+    if (handles[index].lod != 1 && handles[index].lod != 32) return;
 
-                ivec3 voxel = ivec3(gl_LocalInvocationID.xyz)*ivec3(32/groupSizeX,32/groupSizeY,32/groupSizeZ)+ivec3(x,y,z);
-                ivec3 globalPosition = voxel+chunkPosition*chunkSize;
-                int lodr;
-                uint id = readWaterData(globalPosition);
-                if (id != 0) {
-                    if (!UpdateCellFalling(globalPosition)) {
-                        if (UpdateCellWater(globalPosition)) {
-                            containsFluids[index] = 1; 
+    const ivec3 cellsPerInvocation = ivec3(
+        cellsPerChunk / groupSizeX,
+        cellsPerChunk / groupSizeY,
+        cellsPerChunk / groupSizeZ
+    );
+
+    for (int x = 0; x < cellsPerInvocation.x; x++) {
+        for (int z = 0; z < cellsPerInvocation.z; z++) {
+            for (int y = 0; y < cellsPerInvocation.y; y++) {
+
+                ivec3 localCell = ivec3(gl_LocalInvocationID.xyz) * cellsPerInvocation + ivec3(x, y, z);
+                ivec3 cellPosition = localCell + chunkPosition * cellsPerChunk;
+
+                uint id = readWaterData(cellPosition);
+                if (id != 0u) {
+                    if (!UpdateCellFalling(cellPosition)) {
+                        if (UpdateCellWater(cellPosition)) {
+                            containsFluids[index] = 1;
                         }
                     }
                     else {
@@ -326,5 +291,4 @@ void main() {
             }
         }
     }
-
 }

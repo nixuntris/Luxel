@@ -77,7 +77,7 @@ struct ViewPort {
 
 		shaders->secondaryRaysRender.SetUIntArray(palette.data(), palette.size(), "packedColors");
 	}
-	inline void RasterizeMeshes(Matrix matView, Vector3 pos, Vector3 forward, const std::vector<uint32_t> palette, int frame, int triangleCount, Math::IVector2 resolution, bool renderWater) {
+	inline void RasterizeMeshes(Matrix matView, Vector3 pos, Vector3 forward, const std::vector<uint32_t> palette, int frame, int triangleCount, Math::IVector2 resolution, bool renderWater, int simulationResolution) {
 		if (raytracePrimaryRays) {
 
 		/*	Anubis::SwitchShaderStage(shaders->prepassPrimaryRays.programID);
@@ -141,6 +141,7 @@ struct ViewPort {
 			shaders->renderWater.SetUIntArray(palette.data(), palette.size(), "packedColors");
 			shaders->renderWater.SetInt(resolution.width * renderPercentage, "renderWidth");
 			shaders->renderWater.SetInt(resolution.height * renderPercentage, "renderHeight");
+			shaders->renderWater.SetInt(simulationResolution, "simulationResolution");
 			shaders->renderWater.SetInt(frame, "frameIndex");
 			shaders->renderWater.SetInt(0, "offset");
 
