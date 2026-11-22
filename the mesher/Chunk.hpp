@@ -123,6 +123,7 @@ public:
 	bool hardwareRasterize = false;
 	int size;
 	int lod;
+	bool generatedAtLod = false;
 	int voxelCount = 0;
 	int endTri;
 	int beginningTri;
@@ -137,7 +138,7 @@ public:
 			GenerateSavanna(chunkData, generationData, gx, gy, gz, lod, grass);
 			break;
 		case MOUNTAIN:
-			GenerateMountains(chunkData, generationData, gx, gy, gz,lod, grass); //the problem is grass, specifically if it's set to true, it makes the program randomly hang after generation
+			GenerateMountains(chunkData, generationData, gx, gy, gz, lod, grass); //the problem is grass, specifically if it's set to true, it makes the program randomly hang after generation
 			break;	
 		case OCEAN:
 			GenerateDesert(chunkData, generationData, gx, gy, gz, lod, grass);
@@ -212,7 +213,6 @@ public:
 			
 		
 	}
-
 	inline void GenerateCaves(ChunkData* chunkData, int gx, int gy, int gz, int lod = 1) {
 		this->gx = gx;
 		this->gy = gy;
@@ -262,7 +262,6 @@ public:
 			}
 		}
 	}
-
 	inline void GenerateDesert(ChunkData* chunkData, GenerationData generationData, int gx, int gy, int gz, int lod = 1, bool grass = false) {
 		this->gx = gx;
 		this->gy = gy;
@@ -313,7 +312,7 @@ public:
 
 		chunkData->compressedTerrain = (uint8_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint8_t));
 		chunkData->shortenedData = true;
-		grassList.resize(32 * 32);
+		if (grass) grassList.resize(32 * 32);
 		for (uint8_t x = 0; x < chunkSize; x += 1) {
 			for (uint8_t z = 0; z < chunkSize; z += 1) {
 				int terrainHeight = generationData.heightMap[x + z * chunkSize];
@@ -418,6 +417,8 @@ public:
 		}
 	}
 	inline void GenerateLod(ChunkData* chunkData, int gx, int gy, int gz) {
+
+		if (generatedAtLod) return;
 		voxelCount = 0;
 		if (chunkData->shortenedData || chunkData->compressed) {
 			for (int i = 0; i < chunkSize * chunkSize * chunkSize; i++) {

@@ -786,7 +786,7 @@ public:
 						} \
 					} \
 				} while (0)
-
+				
 				auto spawnObject = [&](int dx, int dy, int dz, int object) {
 
 					if (lod != 1 || !spawnAnimatedObjects) {
@@ -827,8 +827,10 @@ public:
 						int dz = Math::GetRandomValueStreamlinedFast(10, 20);
 						int baseY = gen.heightMap[dx + dz * chunkSize];
 						if (baseY > 250) continue;
-						
-						spawnObject(dx, baseY, dz,0);
+						if (lod == 1) {
+
+							spawnObject(dx, baseY, dz, 0);
+						}
 					}
 				}
 				for (int y = 0; y < gen.lowestChunkY; y++) {
@@ -837,7 +839,7 @@ public:
 				}
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					if (!world.chunkData[y * (wx * wz) + nz * wx + nx].skipped) {
-						chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
+						if (!chunks[y * (wx * wz) + nz * wx + nx].generatedAtLod) chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
 						if (!world.chunkData[y*(wx*wz)+nz*wx+nx].shortenedData) chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
 					}
 					
@@ -847,6 +849,7 @@ public:
 				free(gen.heightMap);
 			}
 		}
+
 		if (waterSimulationEnabled) {
 			if (selectedType == MOUNTAIN) {
 
