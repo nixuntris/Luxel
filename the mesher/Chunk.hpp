@@ -103,7 +103,8 @@ enum CHUNKTYPE {
 	SAVANNA = 1,
 	BEACH = 2,
 	MOUNTAIN = 3,
-	CAVES = 4
+	CAVES = 4,
+	OCEAN
 };	
 float caveScale = 0.025f;
 float detailRatio = 2.1428f;
@@ -138,6 +139,9 @@ public:
 		case MOUNTAIN:
 			GenerateMountains(chunkData, generationData, gx, gy, gz,lod, grass); //the problem is grass, specifically if it's set to true, it makes the program randomly hang after generation
 			break;	
+		case OCEAN:
+			GenerateDesert(chunkData, generationData, gx, gy, gz, lod, grass);
+			break;
 		}
 	}
 	inline void GenerateSavanna(ChunkData* chunkData, GenerationData generationData, int gx, int gy, int gz, int lod = 1, bool grass = false) {

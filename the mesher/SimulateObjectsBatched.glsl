@@ -9,7 +9,7 @@ layout (local_size_x = (32/groupSizeX), local_size_y = (32/groupSizeY), local_si
 
 const int chunkSize = 32;
 uniform int waterResolution;
-const int cellsPerChunk = chunkSize / waterResolution;
+int cellsPerChunk = chunkSize / waterResolution;
 
 layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
@@ -143,6 +143,7 @@ void setNibbleData(ivec3 cellPos, uint value) {
     int index = chunkIndexOfCell(cellPos);
 
     containsFluids[index] = 1;
+    containsFluids[index+wx*wy*wz] = 1;
     int regionLod = handles[index].lod;
 
     if (regionLod == 32 || regionLod == 3000)
@@ -273,9 +274,15 @@ void main() {
                 ivec3 localCell = ivec3(gl_LocalInvocationID.xyz) * cellsPerInvocation + ivec3(x, y, z);
                 ivec3 cellPosition = localCell + chunkPosition * cellsPerChunk;
                 if (readWaterData(cellPosition) != 0u) {
-                    containsFluids[index] = 1;
-                    if (!UpdateCellFalling(cellPosition))
-                        UpdateCellWater(cellPosition);
+                    containsFluids[index+wx*wy*wz] = 1; //means it has a cell
+                    if (!UpdateCellFalling(cellPosition)) {
+                        if (UpdateCellWater(cellPosition)) {
+                            containsFluids[index] = 1;
+                        }
+                    }
+                    else {
+                        containsFluids[index] = 1;
+                    }
                 }
             }
         }

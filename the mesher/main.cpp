@@ -14,7 +14,6 @@
 #include "Structure.hpp"
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
-const int waterResolution = 2;
 class App {
 	Anubis::Window window;
 	Chunk* chunks;
@@ -45,7 +44,7 @@ class App {
 	bool mainMenu = false;
 	bool releasedMenu = false;
 	int frame = 0;
-	bool simulateWater = false;
+	bool simulateWater = true;
 	int waterUpdateFrequency = 4;
 	int* containsFluids;
 	Math::IVector3 *waterSimulationBatch;
@@ -54,6 +53,7 @@ class App {
 	bool batchWater = false;
 	int workInFrame = 0;
 	bool waterSimulationEnabled = true;
+	int waterResolution = 2;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -573,6 +573,7 @@ public:
 				if (ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Currently not recommended for weaker systems.\n");
 				}
+				ImGui::SliderInt("Water Resolution: ", &waterResolution, 1, 4);
 				ImGui::Checkbox("Rasterize/Raytrace", &viewPort.raytracePrimaryRays);
 				ImGui::Unindent();
 				ImGui::Spacing();
@@ -581,8 +582,8 @@ public:
 
 			ImGui::Spacing();
 			ImGui::Text("World Type");
-			const char* typeNames[] = { "Mountains", "Savanna", "Desert"};
-			for (int i = 0; i < 3; ++i) {
+			const char* typeNames[] = { "Mountains", "Savanna", "Desert", "Ocean"};
+			for (int i = 0; i < 4; ++i) {
 				bool selected = (worldTypeIndex == i);
 				
 				if (selected) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.55f, 0.9f, 1.0f));
@@ -597,6 +598,9 @@ public:
 							break;
 						case 2:
 							selectedType = DESERT;
+							break;
+						case 3:
+							selectedType = OCEAN;
 							break;
 					}
 
@@ -652,8 +656,8 @@ public:
 				viewPort.camera.position = { (double)wx * chunkSize/2,200,(double)wz * chunkSize / 2 };
 				waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
 
-				shaders.display.CreateSSBO(11, wx* wy* wz * sizeof(int));
-				containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int));
+				shaders.display.CreateSSBO(11, wx* wy* wz * sizeof(int)*2);
+				containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int) * 2);
 				for (int i = 0; i < wx * wz * wy; i++) containsFluids[i] = 1;
 				if (pregenerate) {
 					Run(true);
@@ -844,41 +848,83 @@ public:
 			}
 		}
 		if (waterSimulationEnabled) {
+			if (selectedType == MOUNTAIN) {
 
-			uint8_t* preset = (uint8_t*)MemAlloc((16/ waterResolution) * (32/ waterResolution) * (32/ waterResolution));
-			for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
-			for (int x = 0; x < (16 / waterResolution); x++) {
-				for (int z = 0; z < 32/ waterResolution; z++) {
-					int k = 24 / waterResolution;
-					for (int y = -4 / waterResolution; y < 4 / waterResolution; y++) preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+				uint8_t* preset = (uint8_t*)MemAlloc((16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution));
+				for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
+				for (int x = 0; x < (16 / waterResolution); x++) {
+					for (int z = 0; z < 32 / waterResolution; z++) {
+						int k = 24 / waterResolution;
+						for (int y = -4 / waterResolution; y < 4 / waterResolution; y++) preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+					}
 				}
-			}
 
-			int fluidChunks = 0;
-			for (int nx = 0; nx < wx; nx++) {
-				for (int nz = 0; nz < wz; nz++) {
-					if (world.setLod[nx][nz] == 1) {
-						for (int ny = 0; ny < wy; ny++) {
-							
-							int id = ny * (wx * wz) + nz * wx + nx;
-							if (world.chunkData[id].lod != 32 && !world.chunkData[id].skipped) { //since lod 32 works as a fully filled chunk
-								// 4 bits per voxel
-								// 0 - set or not set
-								// 0 - direction set to left
-								// 0 - direction set to right
-								// 0 - direction set to up
-								// 0 - direction set to down
-								world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
-								world.chunkData[id].waterMap.Upload(preset);
-								world.chunkData[id].waterMap.GetBindlessHandle();
-								world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
+				int fluidChunks = 0;
+				for (int nx = 0; nx < wx; nx++) {
+					for (int nz = 0; nz < wz; nz++) {
+						if (world.setLod[nx][nz] == 1) {
+							for (int ny = 0; ny < wy; ny++) {
+
+								int id = ny * (wx * wz) + nz * wx + nx;
+								if (world.chunkData[id].lod != 32 && !world.chunkData[id].skipped) { //since lod 32 works as a fully filled chunk
+									// 4 bits per voxel
+									// 0 - set or not set
+									// 0 - direction set to left
+									// 0 - direction set to right
+									// 0 - direction set to up
+									// 0 - direction set to down
+									world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
+									world.chunkData[id].waterMap.Upload(preset);
+									world.chunkData[id].waterMap.GetBindlessHandle();
+									world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
+								}
 							}
 						}
-					}
 
+					}
 				}
+				free(preset);
 			}
-			free(preset);
+			else if (selectedType == OCEAN) {
+
+				uint8_t* preset = (uint8_t*)MemAlloc((16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution));
+				for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
+				for (int x = 0; x < (16 / waterResolution); x++) {
+					for (int z = 0; z < 32 / waterResolution; z++) {
+						int k = 24 / waterResolution;
+						for (int y = -8 / waterResolution; y < 8 / waterResolution; y++) {
+							preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+							preset[(x)+(y+1 + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+						}
+					}
+				}
+
+				int fluidChunks = 0;
+				for (int nx = 0; nx < wx; nx++) {
+					for (int nz = 0; nz < wz; nz++) {
+						if (world.setLod[nx][nz] == 1) {
+							for (int ny = 0; ny < wy; ny++) {
+
+								int id = ny * (wx * wz) + nz * wx + nx;
+								if (world.chunkData[id].lod != 32 && !world.chunkData[id].skipped) { //since lod 32 works as a fully filled chunk
+									// 4 bits per voxel
+									// 0 - set or not set
+									// 0 - direction set to left
+									// 0 - direction set to right
+									// 0 - direction set to up
+									// 0 - direction set to down
+									world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
+									world.chunkData[id].waterMap.Upload(preset);
+									world.chunkData[id].waterMap.GetBindlessHandle();
+									world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
+								}
+							}
+						}
+
+					}
+				}
+				free(preset);
+			}
 		}
 		END_TIMER(data_gen)
 		START_TIMER(upload)
@@ -1182,7 +1228,7 @@ public:
 			glGetBufferSubData(
 				GL_SHADER_STORAGE_BUFFER,
 				0,
-				wx * wy * wz * sizeof(int),
+				wx * wy * wz * sizeof(int)*2,
 				containsFluids
 			);
 
@@ -1295,7 +1341,7 @@ public:
 			Anubis::GpuTimer raster;
 			raster.Start();
 				
-			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true, simulationResolution);
+			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true, waterResolution);
 			trianglesRendered = triangleCount;
 			rasterTimeMs = raster.Stop();
 			AnimatedObject objects[maxAnimationBatch];

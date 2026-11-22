@@ -141,6 +141,7 @@ void setNibbleData(ivec3 cellPos, uint value) {
     int index = chunkIndexOfCell(cellPos);
 
     containsFluids[index] = 1;
+    containsFluids[index+wx*wy*wz] = 1;
     int regionLod = handles[index].lod;
 
     if (regionLod == 32 || regionLod == 3000)
@@ -279,6 +280,7 @@ void main() {
 
                 uint id = readWaterData(cellPosition);
                 if (id != 0u) {
+                    containsFluids[index+wx*wy*wz] = 1; //means it has a cell
                     if (!UpdateCellFalling(cellPosition)) {
                         if (UpdateCellWater(cellPosition)) {
                             containsFluids[index] = 1;
