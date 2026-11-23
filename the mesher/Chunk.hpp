@@ -23,6 +23,19 @@
 #define FACE_BOTTOM (1 << 5)
 const int FACES[6] = { FACE_FRONT,FACE_BACK,FACE_LEFT,FACE_RIGHT,FACE_TOP,FACE_BOTTOM };
 
+enum CHUNKTYPE {
+	DESERT = 0,
+	SAVANNA = 1,
+	BEACH = 2,
+	MOUNTAIN = 3,
+	CAVES = 4,
+	OCEAN
+};
+float caveScale = 0.025f;
+float detailRatio = 2.1428f;
+
+const float caveDetailScale = caveScale * detailRatio;
+
 struct ChunkData {
 	bool shortenedData = false;
 	bool skipped = false;
@@ -40,76 +53,6 @@ struct ChunkData {
 	int lastChunkWaterActivity = 0;
 	bool updated = false;
 };
-struct World {
-	std::vector<AnimatedObject> animatedObjects;
-	bool array[mwx][mwz];
-	uint8_t setLod[mwx][mwz];
-	struct GlobalHandle {
-		struct Region {
-			GLuint64 handle = 0;
-			GLuint64 lightStorageHandle = 0;
-			GLuint64 waterHandle;
-			int lod;
-			int filled; 
-		};
-		Region handle[mwx * mwy * mwz];
-	};
-	GlobalHandle handle;
-	std::vector<ChunkData> chunkData;
-	void Setup() {
-		chunkData.resize(wx * wz * wy);
-		memset(handle.handle, 0, wx * wy * wz * sizeof(GLuint64));
-		for (int x = 0; x < wx; x++) {
-			for (int y = 0; y < wz; y++) {
-				array[x][y] = false;
-				setLod[x][y] = 0;
-			}
-		}
-	}
-	~World() {
-		chunkData.clear();
-		chunkData.reserve(0);
-	}
-
-	uint16_t ReadVoxel(int x, int y, int z) {
-		if (x<0 || y<0 || z < 0 || x>wx * chunkSize || y>wy * chunkSize || z > wz * chunkSize) return 0;
-
-		int chunkX = x / chunkSize;
-		int chunkY = y / chunkSize;
-		int chunkZ = z / chunkSize;
-		int localX = x % chunkSize;
-		int localY = y % chunkSize;
-		int localZ = z % chunkSize;
-		int voxelId = IDX(localX, localY, localZ, chunkSize);
-		int chunkId = chunkY * (wx * wz) + chunkZ * wx + chunkX;
-		if (chunkData[chunkId].skipped) return 0;
-		if (chunkData[chunkId].lod == 32) {
-			return 1;
-		}
-		if (chunkData[chunkId].voxelCount != 0 && chunkData[chunkId].lod != 32 && chunkData[chunkId].lod != 0) {
-			if (chunkData[chunkId].shortenedData) {
-				return chunkData[chunkId].compressedTerrain[voxelId];
-			}
-			else if (chunkData[chunkId].compressed) {
-				return chunkData[chunkId].palette[voxelId];
-			}
-			return chunkData[chunkId].terrain[voxelId];
-		}
-		return 0;
-	}
-};
-enum CHUNKTYPE {
-	DESERT = 0,
-	SAVANNA = 1,
-	BEACH = 2,
-	MOUNTAIN = 3,
-	CAVES = 4,
-	OCEAN
-};	
-float caveScale = 0.025f;
-float detailRatio = 2.1428f;
-
-const float caveDetailScale = caveScale * detailRatio;
 
 class Chunk {
 	int tallestY = 0;
@@ -129,7 +72,7 @@ public:
 	int beginningTri;
 	std::vector<Vector3> grassList;
 	inline void GeneratePerType(CHUNKTYPE type, ChunkData* chunkData, GenerationData generationData, int gx, int gy, int gz, int lod = 1, bool grass = false) {
-		
+
 		switch (type) {
 		case DESERT:
 			GenerateDesert(chunkData, generationData, gx, gy, gz, lod, grass);
@@ -139,7 +82,7 @@ public:
 			break;
 		case MOUNTAIN:
 			GenerateMountains(chunkData, generationData, gx, gy, gz, lod, grass); //the problem is grass, specifically if it's set to true, it makes the program randomly hang after generation
-			break;	
+			break;
 		case OCEAN:
 			GenerateDesert(chunkData, generationData, gx, gy, gz, lod, grass);
 			break;
@@ -168,7 +111,7 @@ public:
 				float wxf = (float)(baseWX + x);
 				float wzf = (float)(baseWZ + z);
 				float broad = perlin_noise_2d(wxf * 0.004f, wzf * 0.004f) * 10.0f;
-				float small = perlin_noise_2d(wxf * 0.020f, wzf * 0.020f) * 2.5f; 
+				float small = perlin_noise_2d(wxf * 0.020f, wzf * 0.020f) * 2.5f;
 				int terrainHeight = 135 + (int)(broad + small) + 17;
 
 				float dryness = perlin_noise_2d(wxf * 0.03f, wzf * 0.03f);
@@ -210,8 +153,8 @@ public:
 			}
 		}
 
-			
-		
+
+
 	}
 	inline void GenerateCaves(ChunkData* chunkData, int gx, int gy, int gz, int lod = 1) {
 		this->gx = gx;
@@ -224,11 +167,11 @@ public:
 		const int baseWX = gx * chunkSize;
 		const int baseWY = gy * chunkSize;
 		const int baseWZ = gz * chunkSize;
-		float noiseValues[chunkSize/4][chunkSize/4][chunkSize / 4];
-		for (int x = 0; x < chunkSize / 4; x ++) {
+		float noiseValues[chunkSize / 4][chunkSize / 4][chunkSize / 4];
+		for (int x = 0; x < chunkSize / 4; x++) {
 
 			int worldX = baseWX + x * 4;
-			for (int y = 0; y < chunkSize/4; y++) {
+			for (int y = 0; y < chunkSize / 4; y++) {
 				int worldY = baseWY + y * 4;
 				for (int z = 0; z < chunkSize / 4; z++) {
 
@@ -248,16 +191,16 @@ public:
 				}
 			}
 		}
-		for (int x = 0; x < chunkSize; x ++) {
-			for (int y = 0; y < chunkSize; y ++) {
+		for (int x = 0; x < chunkSize; x++) {
+			for (int y = 0; y < chunkSize; y++) {
 				int worldY = baseWY + y;
-				for (int z = 0; z < chunkSize; z ++) {
+				for (int z = 0; z < chunkSize; z++) {
 					int worldX = baseWX + x;
 					int worldZ = baseWZ + z;
 
-					float cave = noiseValues[x/4][y/4][z/4];
+					float cave = noiseValues[x / 4][y / 4][z / 4];
 
-					chunkData->terrain[IDX(x, y, z, chunkSize)] = (cave > 0.32f)*STONE;
+					chunkData->terrain[IDX(x, y, z, chunkSize)] = (cave > 0.32f) * STONE;
 				}
 			}
 		}
@@ -267,17 +210,17 @@ public:
 		this->gy = gy;
 		this->gz = gz;
 		START_TIMER(total)
-		this->size = chunkSize / lod;
+			this->size = chunkSize / lod;
 		chunkData->terrain = (uint16_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint16_t));
 		this->lod = lod;
 		START_TIMER(voxel_fill)
-		if ((gy  + 1< generationData.lowestChunkY)/5 || (gy > generationData.highestChunkY)/5) {
-			chunkData->skipped = true;
-			return;
-		}
+			if ((gy + 1 < generationData.lowestChunkY) / 5 || (gy > generationData.highestChunkY) / 5) {
+				chunkData->skipped = true;
+				return;
+			}
 		for (uint8_t x = 0; x < chunkSize; x += 1) {
 			for (uint8_t z = 0; z < chunkSize; z += 1) {
-				int terrainHeight = generationData.heightMap[x + z * chunkSize]/5+125;
+				int terrainHeight = generationData.heightMap[x + z * chunkSize] / 5 + 125;
 				int grassLineOffset = Math::GetRandomValueStreamlinedFast(-50, 50);
 				for (int y = chunkSize - 1; y >= 0; y -= 1) {
 					int worldY = gy * chunkSize + y;
@@ -285,8 +228,8 @@ public:
 						chunkData->terrain[
 							IDX(x, y, z, chunkSize)
 						] = 9; // sand
-						if (chunkData->terrain[IDX(x, y + 1, z,chunkSize)] == 0) {
-							if ((x + y + Math::GetRandomValueStreamlinedFast(-1, 1)) % 2 == 0 && grass && Math::GetRandomValueStreamlinedFast(0,1000)==150) grassList.push_back({ (float)x + gx * chunkSize,(float)y + gy * chunkSize,(float)z + gz * chunkSize});
+						if (chunkData->terrain[IDX(x, y + 1, z, chunkSize)] == 0) {
+							if ((x + y + Math::GetRandomValueStreamlinedFast(-1, 1)) % 2 == 0 && grass && Math::GetRandomValueStreamlinedFast(0, 1000) == 150) grassList.push_back({ (float)x + gx * chunkSize,(float)y + gy * chunkSize,(float)z + gz * chunkSize });
 						}
 					}
 				}
@@ -298,17 +241,17 @@ public:
 		this->gy = gy;
 		this->gz = gz;
 		START_TIMER(total)
-		if (lod == 0) {
-			chunkData->skipped = true;
-			return;
-		}
+			if (lod == 0) {
+				chunkData->skipped = true;
+				return;
+			}
 		this->size = chunkSize / lod;
 		this->lod = lod;
 		START_TIMER(voxel_fill)
-		if (gy * chunkSize + chunkSize< generationData.lowestChunkY * chunkSize || gy * chunkSize> generationData.highestChunkY * chunkSize) {
-			chunkData->skipped = true;
-			return;
-		}
+			if (gy * chunkSize + chunkSize< generationData.lowestChunkY * chunkSize || gy * chunkSize> generationData.highestChunkY * chunkSize) {
+				chunkData->skipped = true;
+				return;
+			}
 
 		chunkData->compressedTerrain = (uint8_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint8_t));
 		chunkData->shortenedData = true;
@@ -360,10 +303,10 @@ public:
 		const int baseWY = gy * chunkSize;
 		const int baseWZ = gz * chunkSize;
 
-		const float surfaceThreshold = 0.45f; 
+		const float surfaceThreshold = 0.45f;
 		const float deepThreshold = 0.28f;
 		const int   surfaceWorldY = 220;
-		const int   deepWorldY = 40; 
+		const int   deepWorldY = 40;
 
 		float noiseValues[chunkSize / 4][chunkSize / 4][chunkSize / 4];
 		for (int x = 0; x < chunkSize / 4; x++) {
@@ -404,7 +347,7 @@ public:
 					float wy = (float)worldY;
 					float wz = (float)worldZ;
 
-					float cave = noiseValues[x/4][y/4][z/4];
+					float cave = noiseValues[x / 4][y / 4][z / 4];
 					float t = Math::Clamp((float)(surfaceWorldY - worldY) /
 						(float)(surfaceWorldY - deepWorldY), 0.f, 1.f);
 					float threshold = Lerp(surfaceThreshold, deepThreshold, t);
@@ -432,7 +375,7 @@ public:
 			}
 			if (lod != 1) {
 				START_TIMER(lod_generation)
-				uint8_t* lodVals = (uint8_t*)MemAlloc(this->size * this->size * this->size * sizeof(uint8_t));
+					uint8_t* lodVals = (uint8_t*)MemAlloc(this->size * this->size * this->size * sizeof(uint8_t));
 
 				for (int x = 0; x < this->size; x++) {
 					for (int z = 0; z < this->size; z++) {
@@ -499,7 +442,7 @@ public:
 			}
 			chunkData->lod = lod;
 		}
-		
+
 	}
 	inline void Compress(ChunkData* chunkData) {
 
@@ -536,7 +479,7 @@ public:
 			voxels[chunkData->terrain[i]] += 1;
 		}
 		int originalVoxels = 0;
-		uint16_t palette[255]; 
+		uint16_t palette[255];
 		for (int i = 1; i < 65535; i++) {
 			if (voxels[i] != 0) {
 				palette[originalVoxels] = i;
@@ -546,7 +489,7 @@ public:
 		if (originalVoxels < 255) {
 			chunkData->compressed = true;
 			chunkData->compressedTerrain = (uint8_t*)MemAlloc(size * size * size);
-			uint8_t lookup[65535] = { 0 }; 
+			uint8_t lookup[65535] = { 0 };
 			for (int i = 0; i < originalVoxels; i++) {
 				lookup[palette[i]] = i + 1;
 			}
@@ -561,7 +504,7 @@ public:
 			memcpy(chunkData->palette, palette, originalVoxels * sizeof(uint16_t));
 
 			free(chunkData->terrain);
-			chunkData->terrain = NULL; 
+			chunkData->terrain = NULL;
 		}
 	}
 	inline uint16_t* DecompressChunk(ChunkData* chunkData) {
@@ -579,10 +522,10 @@ public:
 
 		return decompressedData;
 	}
-	inline bool SetTerrain(ChunkData* chunkdata, int x, int y, int z, uint16_t t, bool setGPUDATA=true) {
+	inline bool SetTerrain(ChunkData* chunkdata, int x, int y, int z, uint16_t t, bool setGPUDATA = true) {
 		int id = x + y * size + z * size * size;
 		bool set = false;
-		
+
 		if (chunkdata->shortenedData) {
 			if (chunkdata->compressedTerrain[id] == 0) {
 				voxelCount++;
@@ -739,7 +682,7 @@ public:
 			((uint32_t)(type & 0xFFFFu) << 12);   // Bits 12-27 (16 bits)
 	}
 	uint16_t ReadVoxel(ChunkData* chunkData, int x, int y, int z) {
-		int index = x + y * size + z * size * size; 
+		int index = x + y * size + z * size * size;
 		if (index<0 || index>size * size * size) return 0;
 		if (chunkData->voxelCount == 0) return 0;
 		if (chunkData->skipped) return 0;
@@ -750,7 +693,7 @@ public:
 		if (chunkData->compressed) {
 			uint8_t compressedValue = chunkData->compressedTerrain[index];
 			if (compressedValue == 0) {
-				return 0; 
+				return 0;
 			}
 			return chunkData->palette[compressedValue - 1];
 		}
@@ -763,7 +706,7 @@ public:
 		if (!cd) return;
 		if (cd->voxelCount != 0) {
 
-			if (cd->terrain && !cd->compressed && cd->lod!=32) {
+			if (cd->terrain && !cd->compressed && cd->lod != 32) {
 				MemFree(cd->terrain);
 				cd->terrain = NULL;
 			}
@@ -800,4 +743,73 @@ public:
 		tallestY = 0;
 		grassList.clear();
 	}
+};
+
+struct World {
+	std::vector<AnimatedObject> animatedObjects;
+	bool array[mwx][mwz];
+	Chunk* chunks;
+	uint8_t setLod[mwx][mwz];
+	struct GlobalHandle {
+		struct Region {
+			GLuint64 handle = 0;
+			GLuint64 lightStorageHandle = 0;
+			GLuint64 waterHandle;
+			int lod;
+			int filled; 
+		};
+		Region handle[mwx * mwy * mwz];
+	};
+	GlobalHandle handle;
+	std::vector<ChunkData> chunkData;
+	void Setup() {
+		chunkData.resize(wx * wz * wy);
+		memset(handle.handle, 0, wx * wy * wz * sizeof(GLuint64));
+		for (int x = 0; x < wx; x++) {
+			for (int y = 0; y < wz; y++) {
+				array[x][y] = false;
+				setLod[x][y] = 0;
+			}
+		}
+	}
+	~World() {
+		chunkData.clear();
+		chunkData.reserve(0);
+	}
+
+	uint16_t ReadVoxel(int x, int y, int z) {
+		if (x<0 || y<0 || z < 0 || x>wx * chunkSize || y>wy * chunkSize || z > wz * chunkSize) return 0;
+
+		int chunkX = x / chunkSize;
+		int chunkY = y / chunkSize;
+		int chunkZ = z / chunkSize;
+		int localX = x % chunkSize;
+		int localY = y % chunkSize;
+		int localZ = z % chunkSize;
+		int voxelId = IDX(localX, localY, localZ, chunkSize);
+		int chunkId = chunkY * (wx * wz) + chunkZ * wx + chunkX;
+		if (chunkData[chunkId].skipped) return 0;
+		if (chunkData[chunkId].lod == 32) {
+			return 1;
+		}
+		if (chunkData[chunkId].voxelCount != 0 && chunkData[chunkId].lod != 32 && chunkData[chunkId].lod != 0) {
+			if (chunkData[chunkId].shortenedData) {
+				return chunkData[chunkId].compressedTerrain[voxelId];
+			}
+			else if (chunkData[chunkId].compressed) {
+				return chunkData[chunkId].palette[voxelId];
+			}
+			return chunkData[chunkId].terrain[voxelId];
+		}
+		return 0;
+	}
+	inline void uploadChunkSSBO(uint32_t neighbourId, ShaderManager *shaders) {
+		Anubis::SwitchShaderStage(shaders->display.shaderId);
+		shaders->display.UpdateSSBO(
+			3,
+			&handle.handle[neighbourId],
+			sizeof(World::GlobalHandle::Region),
+			neighbourId * sizeof(World::GlobalHandle::Region)
+		);
+	};
 };

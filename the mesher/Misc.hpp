@@ -11,7 +11,26 @@ const int mwz = 300;
 const int maxAnimationObjects = 1024;
 const int maxGPUBatch = 1024 * 1024;
 const int maxGrassCount = 1449303 * 2;
+inline uint32_t packRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+	return (uint32_t(r)) |
+		(uint32_t(g) << 8) |
+		(uint32_t(b) << 16) |
+		(uint32_t(a) << 24);
+}
+inline bool CustomToggle(const char* label, bool* value) {
+	ImVec2 pos = ImGui::GetCursorScreenPos();
+	ImVec2 size = ImVec2(32, 32);
+	bool clicked = ImGui::InvisibleButton(label, size);
+	if (clicked) *value = !*value;
 
+	ImU32 color = *value ? IM_COL32(255, 255, 255, 255) : IM_COL32(50, 50, 50, 255);
+	ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + size.x, pos.y + size.y), color, 4.0f);
+
+	ImGui::SameLine();
+	ImGui::AlignTextToFramePadding();
+	ImGui::Text("%s", label);
+	return clicked;
+}
 const std::vector<Color> palette = {
 	{0, 255, 0, 255},       // 0: GREEN GRASS
 	{128, 128, 128, 255},   // 1: GRAY
