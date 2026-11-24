@@ -9,7 +9,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
 };
 
 uint packRGBA8(vec4 color)

@@ -8,7 +8,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
 };
 
 layout(std430, binding = 5) buffer BoolBuffer {
@@ -201,7 +200,6 @@ void DrawQuadSoftwareCS(
             if (actualOldDepth > uint(quadDepth)) {
                 frame[idx] = color;
                 pos[idx]   = quadPos;
-                voxelId[idx] = id;
             }
         }
     }
@@ -235,14 +233,18 @@ void main()
     uint hash = hashVec3(baseP);
     uint color = packedColors[meta.type];
     if (hash%2==0) {
-        vec4 hr = unpackRGBA8(packedColors[meta.type]);
-        hr.rgb *= 0.95;
-        color = packRGBA8(hr);
+        
+        color = (color & 0xFF000000u) |
+                (((((color      ) & 0xFFu) * 95u) / 100u)      ) |
+                (((((color >>  8) & 0xFFu) * 95u) / 100u) <<  8) |
+                (((((color >> 16) & 0xFFu) * 95u) / 100u) << 16);
     }
     else if (hash%3==0) {
-        vec4 hr = unpackRGBA8(packedColors[meta.type]);
-        hr.rgb *= 1.05;
-        color = packRGBA8(hr);
+        
+        color = (color & 0xFF000000u) |
+                (((((color      ) & 0xFFu) * 95u) / 100u)      ) |
+                (((((color >>  8) & 0xFFu) * 95u) / 100u) <<  8) |
+                (((((color >> 16) & 0xFFu) * 95u) / 100u) << 16);
     }
     for (int i = 0; i < 6; i++) {
         if ((meta.mask & (1u << i)) == 0u) continue;

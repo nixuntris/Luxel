@@ -9,8 +9,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
-    float lightVal[3840*2160];
 };
 struct Region {
     uvec2 handle;
@@ -95,11 +93,6 @@ uniform int resY;
 vec3 fetchFrame(ivec2 p) {
     p = clamp(p, ivec2(0), ivec2(3839, 2159));
     return unpackRGBA8(frame[p.y * 3840 + p.x]).rgb;
-}
-
-float fetchLightVal(ivec2 p) {
-    p = clamp(p, ivec2(0), ivec2(3839, 2159));
-    return lightVal[p.y * 3840 + p.x];
 }
 
 void main() {

@@ -10,8 +10,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
-    float lightVal[3840*2160];
 };
 
 struct Region {
@@ -217,21 +215,22 @@ void main() {
     if (distanceTravelled<depth[px.y * 3840 + px.x] && hitAnything) {
     
         uint hash = hashVec3(vec3(cell));
+        
         if (hash%2==0) {
-            vec4 hr = unpackRGBA8(color);
-            hr.rgb *= 0.95;
-            color = packRGBA8(hr);
+            color = (color & 0xFF000000u) |
+                    (((((color      ) & 0xFFu) * 95u) / 100u)      ) |
+                    (((((color >>  8) & 0xFFu) * 95u) / 100u) <<  8) |
+                    (((((color >> 16) & 0xFFu) * 95u) / 100u) << 16);
         }
         else if (hash%3==0) {
-            vec4 hr = unpackRGBA8(color);
-            hr.rgb *= 1.05;
-            color = packRGBA8(hr);
+            color = (color & 0xFF000000u) |
+                    (((((color      ) & 0xFFu) * 95u) / 100u)      ) |
+                    (((((color >>  8) & 0xFFu) * 95u) / 100u) <<  8) |
+                    (((((color >> 16) & 0xFFu) * 95u) / 100u) << 16);
         }
         depth[px.y * 3840 + px.x] = distanceTravelled;
         frame[px.y * 3840 + px.x] = color;
         pos[px.y * 3840 + px.x] = vec3(cell);
-        int lod;
-        voxelId[px.y * 3840 + px.x] = int(readVoxelData(ivec3(cell),lod));
     }
     
 }

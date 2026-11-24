@@ -14,6 +14,93 @@
 #include "Structure.hpp"
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
+
+struct GPUHash {
+	Math::IVector3 key;
+	uint16_t value;
+};
+class GPUMap {
+	int size;
+	GPUHash* hash;
+public:
+	const static uint32_t hashValue(Math::IVector3 v) {
+		uint32_t x = v.x;
+		uint32_t y = v.y;
+		uint32_t z = v.z;
+
+		x *= 0x8da6b343u;
+		y *= 0xd8163841u;
+		z *= 0xcb1ab31fu;
+
+		uint32_t h = x ^ (y << 11) ^ (y >> 21) ^ (z << 22) ^ (z >> 10);
+
+		h ^= h >> 16;
+		h *= 0x85ebca6bu;
+		h ^= h >> 13;
+		h *= 0xc2b2ae35u;
+		h ^= h >> 16;
+
+		return h;
+	}
+	int leftOverIds = 0;
+	GPUMap(int size) {
+		this->size = size;
+		this->leftOverIds = size;
+		hash = (GPUHash*)MemAlloc(this->size*sizeof(GPUHash));
+		for (int i = 0; i < this->size; i++) {
+			hash[i].key = {-1,-1,-1}; //wondering whether the taken flag I want value or key be
+			hash[i].value = 0;
+		}
+	}
+	void FetchValue(Math::IVector3 key) {
+		
+	}
+	void SetValue(Math::IVector3 key, uint16_t value) {
+		
+		int index = hashValue(key) % this->size;
+		for (int i = index; i < this->size; i++) {
+			if (this->hash[i].key.x == -1) {
+				this->hash[i].key = key;
+				this->leftOverIds -= 1;
+				this->hash[i].value = value;
+				return;
+			}
+			else if (this->hash[i].key.x == key.x && this->hash[i].key.y == key.y && this->hash[i].key.z == key.z) {
+				this->hash[i].value = value;
+				return;
+			}
+
+		}
+		std::cout << "overfit "<<leftOverIds<<"\n";
+	}
+	~GPUMap() {
+		free(hash);
+	}
+	void TestGPUMap()
+	{
+		constexpr float voxelSize = 1.0f / 16.0f;
+
+		for (int i = 0; i < 2560*1440; i++)
+		{
+			Math::IVector3 pos = {
+				GetRandomValue(-100000, 100000),
+				GetRandomValue(-100000, 100000),
+				GetRandomValue(320, 4800)
+			};
+
+			uint16_t value = GetRandomValue(1, 65535);
+
+			Math::IVector3 voxel = {
+				pos.x,
+				pos.y,
+				pos.z
+			};
+
+			SetValue(voxel, value);
+		}
+	}
+};
+
 class App {
 	Anubis::Window window;
 	ShaderManager shaders;
@@ -22,37 +109,19 @@ class App {
 	ViewPort viewPort;
 	ParticleRender particleRenderer;
 	StructureManager structureManager;
-	float* particles;
-	int totalTriangleCount;
 	Math::IVector2 resolution = { 3840,2160 };
 	int currentResolutionWindow = 3;
-	int grass = 0;
-	int totalMeshletCount = 0;
-	Math::IVector3* softwareRaster;
 	float timeSpeed = 0.0004;
-	int alreadySpawnedGrass = 0;
 	int sampleCount = 1;
-	CHUNKTYPE selectedType = MOUNTAIN;
 	int maxMeshUpdate = 2;
 	int editSize = 5;
 	int renderDistance = 500;
 	int selectedColorIndex = 0; // Keep track of selection
-	int drd = 0;
 	bool spawnAnimatedObjects = false;
 	bool menuOpen = false;
 	bool mainMenu = false;
 	bool releasedMenu = false;
 	int frame = 0;
-	bool simulateWater = false;
-	int waterUpdateFrequency = 4;
-	int* containsFluids;
-	Math::IVector3 *waterSimulationBatch;
-	Math::IVector3 currentBatch[1024 * 1024];
-	int lastBatch = 0;
-	bool batchWater = false;
-	int workInFrame = 0;
-	bool waterSimulationEnabled = true;
-	int waterResolution = 2;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -60,8 +129,7 @@ public:
 		//Now only make far away chunks not actually get generated, since you can approximate the blocks (especially easy with the desert or mountains)
 		//Fix the editing for chunks that were skipped, as they have a problem of not properly being regenerated 
 		//Implement different water simulation resolutions for lodded chunks in cellular automata
-
-		resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
+			resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
 		resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
 
 		matProj = MatrixPerspective(90 * DEG2RAD, ((double)resolution.width / (double)resolution.height), 0.1, 100000.0);
@@ -73,26 +141,27 @@ public:
 		omp_set_num_threads(32);
 		viewPort.camera.target = { 0,1,0 };
 		SetRandomSeed(100);
+		GPUMap mapp(2560 * 1440);
+		mapp.TestGPUMap();
 		shaders.Load();
 		int maxSSBOCount = 0;
 		glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxSSBOCount);
 		shaders.display.CreatePersistentSSBO(9, sizeof(int) * 2+1024*1024*2*sizeof(int));
 		shaders.display.CreateSSBO(10, maxGPUBatch * sizeof(Math::IVector3));
-		softwareRaster = (Math::IVector3*)(MemAlloc(1024 * 1024 * sizeof(Math::IVector3)));
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 		ImGui::StyleColorsDark();
 
-		totalTriangleCount = 59259259/2;
-		totalMeshletCount = totalTriangleCount/64;
+		world.totalTriangleCount = 59259259/2;
+		world.totalMeshletCount = world.totalTriangleCount/64;
 		shaders.display.CreateSSBO(3, sizeof(world.handle));
 		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
-		shaders.display.CreatePersistentSSBO(5, (totalMeshletCount + 1) * sizeof(int) * 8);
-		shaders.display.CreatePersistentSSBO(2, totalTriangleCount * sizeof(uint32_t) * 8);
-		shaders.display.CreatePersistentSSBO(6, totalTriangleCount * sizeof(uint32_t) * 8);
-		shaders.display.CreatePersistentSSBO(7, totalMeshletCount * 6 * sizeof(float) * 8);
+		shaders.display.CreatePersistentSSBO(5, (world.totalMeshletCount + 1) * sizeof(int) * 8);
+		shaders.display.CreatePersistentSSBO(2, world.totalTriangleCount * sizeof(uint32_t) * 8);
+		shaders.display.CreatePersistentSSBO(6, world.totalTriangleCount * sizeof(uint32_t) * 8);
+		shaders.display.CreatePersistentSSBO(7, world.totalMeshletCount * 6 * sizeof(float) * 8);
 		shaders.display.CreateSSBO(20, maxGrassCount * 3 * sizeof(float));
 		ImGui_ImplGlfw_InitForOpenGL(window.GetWindowHandle(), true);
 		ImGui_ImplOpenGL3_Init("#version 460");
@@ -151,9 +220,9 @@ public:
 			ImGui::Begin("Debug Menu");
 
 			ImGui::SliderInt("Edit Size", &editSize, 1, 300);
-			ImGui::SliderInt("Water Update Frequency", &waterUpdateFrequency, 1, 15);
-			CustomToggle("Simulate Water", &simulateWater);
-			CustomToggle("Batch Water Simulation", &batchWater);
+			ImGui::SliderInt("Water Update Frequency", &world.waterUpdateFrequency, 1, 15);
+			CustomToggle("Simulate Water", &world.simulateWater);
+			CustomToggle("Batch Water Simulation", &world.batchWater);
 			ImGui::SliderInt("Render Distance", &renderDistance, 1, 1000);
 			ImGui::SliderFloat("Render Percentage", &viewPort.renderPercentage, 0.1f, 1.0f);
 			ImGui::SliderInt("Max Mesh Gen Per Frame", &maxMeshUpdate, 1, 40);
@@ -192,7 +261,7 @@ public:
 			ImGui::Text("Culling: %.2f ms", frustumTimeMs);
 			ImGui::Text("Secondary Rays: %.2f ms", secondaryRaysMs);
 			ImGui::Text("Simulation Time : %.2f ms", waterMs);
-			ImGui::Text("Total Triangles In Scene: %d", totalTriangleCount);
+			ImGui::Text("Total Triangles In Scene: %d", world.totalTriangleCount);
 			ImGui::Text("Rendered Triangles: %d ", trianglesRendered);
 			ImGui::Separator();
 
@@ -250,173 +319,6 @@ public:
 		ImGui::End();
 		ImGui::Render();
 		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-	}
-	
-	inline void SetLODChunks(int x, int z, int lod) {
-		for (int y = 0; y < wy; y++) {
-			int id = y * (wx * wz) + z * wx + x;
-
-			ChunkDeleteMeshData(x, y, z);
-
-			world.chunks[id].ClearChunkData(&world.chunkData[id]);
-
-			world.chunkData[id].fluidShortMap.Delete();
-			world.chunkData[id].fluidByteMap.Delete();
-
-			world.chunks[id].endTri = 0;
-			world.chunks[id].oldTri = 0;
-			world.chunkData[id].updated = false;
-		}
-
-		world.setLod[x][z] = lod;
-		world.array[x][z] = true;
-
-		float dist = Vector2Distance(
-			{ (float)x * chunkSize + chunkSize / 2, (float)z * chunkSize + chunkSize / 2 },
-			{ float(viewPort.camera.position.x), float(viewPort.camera.position.z) });
-		bool grass = false;
-		if (dist < 1920) grass = true;
-		GenerationData gen;
-		gen.GenerateMountains(x, z);
-#pragma omp parallel for num_threads(4)
-		for (int y = gen.lowestChunkY; y < gen.highestChunkY; y++) {
-			world.chunks[y * (wx * wz) + z * wx + x].GeneratePerType(selectedType,&world.chunkData[y * (wx * wz) + z * wx + x], gen, x, y, z, lod, grass);
-			
-			world.chunks[y * (wx * wz) + z * wx + x].GenerateLod(
-				&world.chunkData[y * (wx * wz) + z * wx + x], x, y, z);
-			world.chunks[y * (wx * wz) + z * wx + x].Compress(
-				&world.chunkData[y * (wx * wz) + z * wx + x]);
-		}
-
-		free(gen.heightMap);
-
-		for (int ny = 0; ny < wy; ny++) {
-			int neighbourId = ny * (wx * wz) + z * wx + x;
-			if (x < 0 || ny < 0 || z < 0 || x >= wx || ny >= wy || z >= wz) continue;
-			if (world.chunks[neighbourId].lod == 0) continue;
-
-			int size = chunkSize / world.chunks[neighbourId].lod;
-			if (world.chunkData[neighbourId].skipped) {
-				world.handle.handle[neighbourId].lod = 32;
-				world.handle.handle[neighbourId].filled = 1;
-
-				continue;
-			}
-			if (world.chunkData[neighbourId].voxelCount != 0 &&
-				!world.chunkData[neighbourId].skipped && world.chunks[neighbourId].voxelCount > chunkSize* chunkSize* chunkSize) {
-
-				if (world.chunkData[neighbourId].shortenedData) {
-					world.chunkData[neighbourId].fluidByteMap.Clear({ size, size, size });
-					world.chunkData[neighbourId].fluidByteMap.Upload(
-						world.chunkData[neighbourId].compressedTerrain);
-					world.chunkData[neighbourId].fluidByteMap.GetBindlessHandle();
-					world.handle.handle[neighbourId].handle =
-						world.chunkData[neighbourId].fluidByteMap.handle;
-				}
-				else {
-					world.chunkData[neighbourId].fluidShortMap.Clear({ size, size, size });
-					uint16_t* tt = world.chunks[neighbourId].DecompressChunk(
-						&world.chunkData[neighbourId]);
-					world.chunkData[neighbourId].fluidShortMap.Upload(tt);
-					free(tt);
-					world.chunkData[neighbourId].fluidShortMap.GetBindlessHandle();
-					world.handle.handle[neighbourId].handle =
-						world.chunkData[neighbourId].fluidShortMap.handle;
-				}
-
-				world.handle.handle[neighbourId].lod = world.chunkData[neighbourId].lod;
-			}
-		}
-
-	}
-	inline void ChunkDeleteMeshData(int nx, int ny, int nz) {
-
-		int neighbourId = ny * (wx * wz) + nz * wx + nx;
-
-		int beginTri = world.chunks[neighbourId].beginningTri;
-		int endTri = world.chunks[neighbourId].endTri;
-		int triCount = endTri - beginTri;
-
-		if (world.chunks[neighbourId].voxelCount != 0) {
-			memset((uint8_t*)shaders.display.ssboPointers[2] + (size_t)beginTri * sizeof(uint32_t),
-				0, (size_t)triCount * sizeof(uint32_t));
-
-			memset((uint8_t*)shaders.display.ssboPointers[6] + (size_t)beginTri * sizeof(uint32_t),
-				0, (size_t)triCount * sizeof(uint32_t));
-
-			int beginMeshlet = beginTri / 64;
-			int endMeshlet = (endTri + 63) / 64;
-			int meshletCount = endMeshlet - beginMeshlet;
-
-			if (meshletCount > 0) {
-				memset((uint8_t*)shaders.display.ssboPointers[5] + (size_t)beginMeshlet * sizeof(int),
-					0, (size_t)meshletCount * sizeof(int));
-
-				memset((uint8_t*)shaders.display.ssboPointers[7] + (size_t)beginMeshlet * 6 * sizeof(float),
-					0, (size_t)meshletCount * 6 * sizeof(float));
-			}
-		}
-	}
-	inline void DeleteColumn(int nx, int nz) {
-		world.array[nx][nz] = false;
-
-		for (int ny = 0; ny < wy; ny++) {
-			int neighbourId = ny * (wx * wz) + nz * wx + nx;
-			ChunkDeleteMeshData(nx, ny, nz);
-			world.chunks[neighbourId].ClearChunkData(&world.chunkData[neighbourId]);
-			world.chunks[neighbourId].grassList.clear();
-			
-			world.uploadChunkSSBO(neighbourId,&shaders);
-		}
-	}
-	inline void DeleteWorld() {
-
-		for (int nx = 0; nx < wx; nx++) {
-			for (int nz = 0; nz < wz; nz++) {
-
-				world.array[nx][nz] = false;
-
-				for (int ny = 0; ny < wy; ny++) {
-					int neighbourId = ny * (wx * wz) + nz * wx + nx;
-					world.chunks[neighbourId].ClearChunkData(&world.chunkData[neighbourId]);
-					world.chunks[neighbourId].grassList.clear();
-					world.uploadChunkSSBO(neighbourId, &shaders);
-				}
-			}
-		}
-		free(world.chunks);
-		Anubis::SwitchShaderStage(shaders.display.shaderId);
-		memset(shaders.display.ssboPointers[9], 0, (1024 * 1024 * 2 + 1) * sizeof(int));
-		memset(shaders.display.ssboPointers[5], 0, (totalMeshletCount + 1) * sizeof(int) * 8);
-		memset(shaders.display.ssboPointers[2], 0, totalTriangleCount * sizeof(uint32_t) * 8);
-		memset(shaders.display.ssboPointers[6], 0, totalTriangleCount * sizeof(uint32_t) * 8);
-		memset(shaders.display.ssboPointers[7], 0, totalMeshletCount * 6 * sizeof(float) * 8);
-		shaders.display.UpdateSSBO(20, 0, maxGrassCount * 3 * sizeof(float), 0);
-		grass = 0;
-	}
-	inline void RecalculateParticles(int x, int y, int z) {
-		Anubis::SwitchShaderStage(shaders.display.shaderId);
-		int total = 0;
-		int tt = world.chunks[y * (wx * wz) + z * wx + x].grassList.size();
-		if (tt <= 0) return;
-		particles = (float*)MemAlloc(tt * 2 * 3 * sizeof(float));
-		
-		for (auto t : world.chunks[y * (wx * wz) + z * wx + x].grassList) {
-			for (int i = 0; i < Math::GetRandomValueStreamlined(1, 2); i++) {
-				particles[total * 3] = (t.x + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
-				particles[total * 3 + 1] = (t.y + 1);
-				particles[total * 3 + 2] = (t.z + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
-				grass++;
-				total++;
-			}
-		}
-	
-		if (grass > maxGrassCount) grass = maxGrassCount;
-		if (grass > 0) {
-			shaders.display.UpdateSSBO(20, particles, tt * 3 * sizeof(float), alreadySpawnedGrass*3*sizeof(float));
-			alreadySpawnedGrass += tt;
-		}
-		free(particles); 
 	}
 	void MainMenu() {
 		
@@ -540,11 +442,11 @@ public:
 				if (ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Things like trees with changing animations, however they are debug and aren't necessarily what you expect.\n");
 				}
-				ImGui::Checkbox("Simulate Water", &waterSimulationEnabled);
+				ImGui::Checkbox("Simulate Water", &world.waterSimulationEnabled);
 				if (ImGui::IsItemHovered()) {
 					ImGui::SetTooltip("Currently not recommended for weaker systems.\n");
 				}
-				ImGui::SliderInt("Water Resolution: ", &waterResolution, 1, 4);
+				ImGui::SliderInt("Water Resolution: ", &world.waterResolution, 1, 4);
 				ImGui::Checkbox("Rasterize/Raytrace", &viewPort.raytracePrimaryRays);
 				ImGui::Unindent();
 				ImGui::Spacing();
@@ -562,16 +464,16 @@ public:
 					worldTypeIndex = i;
 					switch (i) {
 						case 0:
-							selectedType = MOUNTAIN;
+							world.selectedType = MOUNTAIN;
 							break;
 						case 1:
-							selectedType = SAVANNA;
+							world.selectedType = SAVANNA;
 							break;
 						case 2:
-							selectedType = DESERT;
+							world.selectedType = DESERT;
 							break;
 						case 3:
-							selectedType = OCEAN;
+							world.selectedType = OCEAN;
 							break;
 					}
 
@@ -625,12 +527,12 @@ public:
 				window.Resize(resolution.width,resolution.height);
 				world.Setup();
 				viewPort.camera.position = { (double)wx * chunkSize/2,200,(double)wz * chunkSize / 2 };
-				waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
+				world.waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
 				world.chunks = (Chunk*)MemAlloc(wx * wz * wy * sizeof(Chunk));
 
 				shaders.display.CreateSSBO(11, wx* wy* wz * sizeof(int)*2);
-				containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int) * 2);
-				for (int i = 0; i < wx * wz * wy; i++) containsFluids[i] = 1;
+				world.containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int) * 2);
+				for (int i = 0; i < wx * wz * wy; i++) world.containsFluids[i] = 1;
 				if (pregenerate) {
 					Run(true);
 				}
@@ -653,46 +555,6 @@ public:
 			ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 			window.UpdateBuffer();
 		}
-	}
-	void RecalculateParticlesFullDebug() {
-
-		grass = 0;
-		int total = 0;
-		int tt = 0;
-		for (int x = 0; x < wx; x++) {
-			for (int z = 0; z < wz; z++) {
-				for (int y = 0; y < wy; y++) {
-
-					tt += world.chunks[y * (wx * wz) + z * wx + x].grassList.size();
-				}
-			}
-		}
-		particles = (float*)MemAlloc(tt * 2 * 3 * sizeof(float));
-
-		for (int x = 0; x < wx; x++) {
-			for (int z = 0; z < wz; z++) {
-				for (int y = 0; y < wy; y++) {
-
-					for (auto t : world.chunks[y * (wx * wz) + z * wx + x].grassList) {
-						for (int i = 0; i < GetRandomValue(1, 2); i++) {
-							particles[total * 3] = (t.x + float(GetRandomValue(-10, 10)) / 10.0f);
-							particles[total * 3 + 1] = (t.y + 1);
-							particles[total * 3 + 2] = (t.z + float(GetRandomValue(-10, 10)) / 10.0f);
-							grass++;
-							total++;
-						}
-
-
-					}
-					world.chunks[y * (wx * wz) + z * wx + x].grassList.clear();
-				}
-			}
-		}
-		if (grass > 0) {
-			std::cout << "grass: " << grass << "\n";
-			shaders.display.UpdateSSBO(20, particles, grass * 3 * sizeof(float), 0);
-		}
-		free(particles);
 	}
 	void PreGenerateFullDebug(int setLod=0) {
 		START_TIMER(data_gen)
@@ -722,7 +584,7 @@ public:
 					world.chunkData[y * (wx * wz) + nz * wx + nx].lod = 0;
 				}
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
-					world.chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(selectedType,&world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
+					world.chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(world.selectedType,&world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
 				};
 				
 				int base = 0;
@@ -793,7 +655,7 @@ public:
 						world.animatedObjects.push_back(ao);
 					}
 					};
-				if (selectedType == MOUNTAIN) {
+				if (world.selectedType == MOUNTAIN) {
 					for (int i = 0; i < Math::GetRandomValueStreamlinedFast(0, 4); i++) {
 						int dx = Math::GetRandomValueStreamlinedFast(10, 20);
 						int dz = Math::GetRandomValueStreamlinedFast(10, 20);
@@ -822,15 +684,15 @@ public:
 			}
 		}
 
-		if (waterSimulationEnabled) {
-			if (selectedType == MOUNTAIN) {
+		if (world.waterSimulationEnabled) {
+			if (world.selectedType == MOUNTAIN) {
 
-				uint8_t* preset = (uint8_t*)MemAlloc((16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution));
-				for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
-				for (int x = 0; x < (16 / waterResolution); x++) {
-					for (int z = 0; z < 32 / waterResolution; z++) {
-						int k = 24 / waterResolution;
-						for (int y = -4 / waterResolution; y < 4 / waterResolution; y++) preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+				uint8_t* preset = (uint8_t*)MemAlloc((16 / world.waterResolution) * (32 / world.waterResolution) * (32 / world.waterResolution));
+				for (int i = 0; i < (16 / world.waterResolution) * (32 / world.waterResolution) * (32 / world.waterResolution); i++) preset[i] = 0;
+				for (int x = 0; x < (16 / world.waterResolution); x++) {
+					for (int z = 0; z < 32 / world.waterResolution; z++) {
+						int k = 24 / world.waterResolution;
+						for (int y = -4 / world.waterResolution; y < 4 / world.waterResolution; y++) preset[(x)+(y + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
 					}
 				}
 
@@ -848,7 +710,7 @@ public:
 									// 0 - direction set to right
 									// 0 - direction set to up
 									// 0 - direction set to down
-									world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
+									world.chunkData[id].waterMap.Clear({ 32 / 2 / world.waterResolution,32 / world.waterResolution,32 / world.waterResolution });
 									world.chunkData[id].waterMap.Upload(preset);
 									world.chunkData[id].waterMap.GetBindlessHandle();
 									world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
@@ -860,16 +722,16 @@ public:
 				}
 				free(preset);
 			}
-			else if (selectedType == OCEAN) {
+			else if (world.selectedType == OCEAN) {
 
-				uint8_t* preset = (uint8_t*)MemAlloc((16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution));
-				for (int i = 0; i < (16 / waterResolution) * (32 / waterResolution) * (32 / waterResolution); i++) preset[i] = 0;
-				for (int x = 0; x < (16 / waterResolution); x++) {
-					for (int z = 0; z < 32 / waterResolution; z++) {
-						int k = 24 / waterResolution;
-						for (int y = -8 / waterResolution; y < 8 / waterResolution; y++) {
-							preset[(x)+(y + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
-							preset[(x)+(y+1 + k) * (16 / waterResolution) + (z) * (16 / waterResolution) * (32 / waterResolution)] |= (1 << 4);
+				uint8_t* preset = (uint8_t*)MemAlloc((16 / world.waterResolution) * (32 / world.waterResolution) * (32 / world.waterResolution));
+				for (int i = 0; i < (16 / world.waterResolution) * (32 / world.waterResolution) * (32 / world.waterResolution); i++) preset[i] = 0;
+				for (int x = 0; x < (16 / world.waterResolution); x++) {
+					for (int z = 0; z < 32 / world.waterResolution; z++) {
+						int k = 24 / world.waterResolution;
+						for (int y = -8 / world.waterResolution; y < 8 / world.waterResolution; y++) {
+							preset[(x)+(y + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
+							preset[(x)+(y+1 + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
 						}
 					}
 				}
@@ -888,7 +750,7 @@ public:
 									// 0 - direction set to right
 									// 0 - direction set to up
 									// 0 - direction set to down
-									world.chunkData[id].waterMap.Clear({ 32 / 2 / waterResolution,32 / waterResolution,32 / waterResolution });
+									world.chunkData[id].waterMap.Clear({ 32 / 2 / world.waterResolution,32 / world.waterResolution,32 / world.waterResolution });
 									world.chunkData[id].waterMap.Upload(preset);
 									world.chunkData[id].waterMap.GetBindlessHandle();
 									world.handle.handle[id].waterHandle = world.chunkData[id].waterMap.handle;
@@ -994,58 +856,11 @@ public:
 		delete[] byteMapSizes;
 		END_TIMER(upload)
 		shaders.display.UpdateSSBO(3, &world.handle, sizeof(world.handle), 0);
-		RecalculateParticlesFullDebug();
+		world.RecalculateParticlesFullDebug(&shaders);
 		PreCalculateMesh();
 	}
-	void CallGPUMesh() {
-
-		if (drd > 0 && !viewPort.raytracePrimaryRays) {
-			shaders.display.UpdateSSBO(10, softwareRaster, drd * sizeof(Math::IVector3), 0);
-
-			auto batchUploadEnd = std::chrono::high_resolution_clock::now();
-			Anubis::GpuTimer mesh;
-			mesh.Start();
-			Anubis::SwitchShaderStage(shaders.generateMesh.programID);
-			shaders.generateMesh.SetInt(wx, "wx");
-			shaders.generateMesh.SetInt(wy, "wy");
-			shaders.generateMesh.SetInt(wz, "wz");
-			shaders.generateMesh.SetFloat(timeSpeed, "timeSpeed");
-			shaders.generateMesh.SetInt(resolution.width, "renderWidth");
-			shaders.generateMesh.SetInt(resolution.height, "renderHeight");
-			shaders.generateMesh.Use(drd, 1, 1);
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
-
-			constexpr GLintptr N = 1024 * 1024;
-			const GLintptr endOffset = sizeof(int) + N * sizeof(int);
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[9]);
-
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &totalMeshletCount);
-
-			std::vector<int> begin(drd), end(drd);
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(int),
-				drd * sizeof(int), begin.data());
-			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, endOffset,
-				drd * sizeof(int), end.data());
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-			if (totalMeshletCount * 64 > 59259259) {
-				std::cout << "Buffer overflow \n";
-			}
-
-			totalTriangleCount = totalMeshletCount * 64 + 64;
-
-			for (int i = 0; i < drd; i++) {
-
-
-				int id = softwareRaster[i].y * (wx * wz) + softwareRaster[i].z * wx + softwareRaster[i].x;
-				world.chunks[id].beginningTri = begin[i];
-				world.chunks[id].endTri = end[i];
-			}
-		}
-	}
 	void PreCalculateMesh() {
-		drd = 0;
+		world.drd = 0;
 		Math::IVector3 *queue = (Math::IVector3*)MemAlloc(wx * wz * wy*sizeof(Math::IVector3));
 		int queueCounter = 0;
 			for (int x = 0; x < wx; x++) {
@@ -1064,18 +879,18 @@ public:
 
 				}
 			}
-		drd = 0;
+		world.drd = 0;
 		for (int i = 0; i < queueCounter; i++) {
-			softwareRaster[drd] = queue[drd];
-			drd++;
-			if (drd == 1024 * 1024-1) {
-				CallGPUMesh();
-				drd = 0;
+			world.softwareRaster[world.drd] = queue[world.drd];
+			world.drd++;
+			if (world.drd == 1024 * 1024-1) {
+				world.CallGPUMesh(viewPort.raytracePrimaryRays,&shaders);
+				world.drd = 0;
 			}
 		}
-		if (drd > 0) {
-			CallGPUMesh();
-			drd = 0;
+		if (world.drd > 0) {
+			world.CallGPUMesh(viewPort.raytracePrimaryRays,&shaders);
+			world.drd = 0;
 		}
 		free(queue);
 	}
@@ -1124,134 +939,6 @@ public:
 			}
 		}
 	}
-	void SimulateFluidObjects() {
-		if (workInFrame == 0) {
-
-			Anubis::SwitchShaderStage(shaders.display.shaderId);
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
-
-			int zero = 0;
-
-			glClearBufferData(GL_SHADER_STORAGE_BUFFER,GL_R32I,GL_RED_INTEGER,GL_INT,&zero);
-
-			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
-		}
-		
-		Math::Vector3 offset = { viewPort.camera.position.x / 32 - 960 / 32,0,viewPort.camera.position.z / 32 - 960 / 32 };
-		int dispatchSize = 960 / 32;
-
-		if (wx < dispatchSize * 2) {
-			dispatchSize = wx;
-			offset.x = 0;
-			offset.z = 0;
-		}
-		if (lastBatch == 0 || !batchWater) {
-
-			Anubis::SwitchShaderStage(shaders.simulateWater.programID);
-
-			shaders.simulateWater.SetInt(wx, "wx");
-			shaders.simulateWater.SetInt(wy, "wy");
-			shaders.simulateWater.SetInt(wz, "wz");
-			shaders.simulateWater.SetInt(wz, "wz");
-			shaders.simulateWater.SetInt(waterResolution, "waterResolution");
-			shaders.simulateWater.SetVector3(offset, "cameraOffset");
-
-			shaders.simulateWater.SetInt(workInFrame, "workGroupIDOffset");
-			shaders.simulateWater.SetInt(waterUpdateFrequency, "workGroupSpread");
-
-			int totalGroupsX = dispatchSize * 2;
-
-			int groupsPerFrame = (totalGroupsX - workInFrame + waterUpdateFrequency - 1) / waterUpdateFrequency;
-
-			groupsPerFrame = groupsPerFrame > 0 ? groupsPerFrame : 0;
-
-			shaders.simulateWater.Use(groupsPerFrame,wy,dispatchSize * 2);
-		}
-		else {
-			auto flush = [&](int count) {
-				Anubis::SwitchShaderStage(shaders.display.shaderId);
-				shaders.display.UpdateSSBO(10, currentBatch, count * sizeof(Math::IVector3), 0);
-
-				Anubis::SwitchShaderStage(shaders.simulateWaterBatched.programID);
-				shaders.simulateWaterBatched.SetInt(wx, "wx");
-				shaders.simulateWaterBatched.SetInt(wy, "wy");
-				shaders.simulateWaterBatched.SetInt(wz, "wz");
-				shaders.simulateWaterBatched.SetInt(waterResolution, "waterResolution");
-				shaders.simulateWaterBatched.Use(count, 1, 1);
-			};
-
-			const int maxBatch = 1024 * 1024;
-			int n = 0;
-			for (int i = workInFrame; i < lastBatch; i += waterUpdateFrequency) {
-				currentBatch[n++] = waterSimulationBatch[i];
-				if (n == maxBatch) {
-					flush(n);
-					n = 0;
-				}
-			}
-			if (n > 0) flush(n);
-		}
-		if (batchWater && workInFrame == waterUpdateFrequency - 1) {
-
-
-			Anubis::SwitchShaderStage(shaders.display.shaderId);
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders.display.ssboIds[11]);
-			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
-				GL_BUFFER_UPDATE_BARRIER_BIT);
-
-			glGetBufferSubData(
-				GL_SHADER_STORAGE_BUFFER,
-				0,
-				wx * wy * wz * sizeof(int)*2,
-				containsFluids
-			);
-
-			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-			int updateAble = 0;
-			int shouldUpdate = 0;
-			for (int x = 0; x < wx; x++) {
-				for (int z = 0; z < wz; z++) {
-					if (world.setLod[x][z]==1) {
-						for (int y = 0; y < wy; y++) {
-							int chunkId = y * (wx * wz) + z * wx + x;
-							if (containsFluids[chunkId] == 0) {
-								world.chunkData[chunkId].lastChunkWaterActivity += 1;
-							}
-							else {
-								world.chunkData[chunkId].lastChunkWaterActivity = 0;
-							}
-							if (world.chunkData[chunkId].lastChunkWaterActivity < 5) {
-								shouldUpdate++;
-							}
-						}
-					}
-				}
-			}
-			if (shouldUpdate < 30 * 30 * wy / 2) {
-				int i = 0;
-				for (int x = 0; x < wx; x++) {
-					for (int z = 0; z < wz; z++) {
-						if (world.setLod[x][z] == 1) {
-							for (int y = 0; y < wy; y++) {
-								int chunkId = y * (wx * wz) + z * wx + x;
-								if (world.chunkData[chunkId].lastChunkWaterActivity < 5) {
-									waterSimulationBatch[i] = { x,y,z };
-									i++;
-								}
-							}
-						}
-					}
-				}
-
-				lastBatch = i;
-			}
-			else {
-				lastBatch = 0;
-			}
-		}
-		workInFrame = (workInFrame + 1) % waterUpdateFrequency;
-	}
 	void Run(bool pregenerate=false) {
 		
 		std::vector<uint32_t> ColorPallete;
@@ -1278,9 +965,9 @@ public:
 				viewPort.camera.UpdateFREE(window.GetMousePos(), oldMouse, window);
 			}
 
-			if (simulateWater) {
+			if (world.simulateWater) {
 				waterSimulation.Start();
-				SimulateFluidObjects();
+				world.SimulateFluidObjects(&shaders, viewPort.camera);
 				simulationTime = waterSimulation.Stop();
 
 			}
@@ -1299,8 +986,8 @@ public:
 			timerFrustum.Start();
 
 			frustum.Start();
-			if (totalMeshletCount > 0) {
-				viewPort.FrustumCull(matView, pos, forward, totalMeshletCount);
+			if (world.totalMeshletCount > 0) {
+				viewPort.FrustumCull(matView, pos, forward, world.totalMeshletCount);
 			}
 
 			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT | GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
@@ -1316,7 +1003,7 @@ public:
 			Anubis::GpuTimer raster;
 			raster.Start();
 				
-			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true, waterResolution);
+			viewPort.RasterizeMeshes(matView, pos, forward, ColorPallete, frame, triangleCount, resolution, true, world.waterResolution);
 			trianglesRendered = triangleCount;
 			rasterTimeMs = raster.Stop();
 			AnimatedObject objects[maxAnimationBatch];
@@ -1339,8 +1026,8 @@ public:
 			CheckAnimationState();
 			Anubis::GpuTimer grassT;
 			grassT.Start();
-			if (graphicsSettings.grassRender && grass > 0) {
-				viewPort.RenderGrass(matView, pos, forward, frame, resolution, grass);
+			if (graphicsSettings.grassRender && world.grass > 0) {
+				viewPort.RenderGrass(matView, pos, forward, frame, resolution, world.grass);
 			}
 
 			if (graphicsSettings.secondaryRays) {
@@ -1374,7 +1061,7 @@ public:
 						if (dist > 960 * 8) lod = 16;
 						if (dist > 960 * 12) lod = 32;
 						if (world.setLod[x][z] != lod && lodchanged<10) {
-							SetLODChunks(x, z, lod);
+							world.SetLODChunks(x, z, lod,viewPort.camera,&shaders);
 							for (int y = 0; y < wy; y++) {
 								int neighbourId = y * (wx * wz) + z * wx + x;
 								if (world.chunkData[neighbourId].voxelCount!=0) world.uploadChunkSSBO(neighbourId,&shaders);
@@ -1388,7 +1075,7 @@ public:
 
 			}
 			oldChunkPos = currentChunkPos;
-			drd = 0;
+			world.drd = 0;
 			Vector3 rayCastPos = pos;
 			bool hitDeadEnd = false;
 			for (int i = 0; i < 100; i++) {
@@ -1552,11 +1239,11 @@ public:
 							int dz = chunksUpdatedThisFrame[i].z;
 							int id = dy * (wx * wz) + dz * wx + dx;
 							if (world.chunks[id].lod != 0 && !world.chunks[id].hardwareRasterize) {
-								ChunkDeleteMeshData(dx, dy, dz);
-								softwareRaster[drd].x = world.chunks[id].gx;
-								softwareRaster[drd].y = world.chunks[id].gy;
-								softwareRaster[drd].z = world.chunks[id].gz;
-								drd++;
+								world.ChunkDeleteMeshData(dx, dy, dz, &shaders);
+								world.softwareRaster[world.drd].x = world.chunks[id].gx;
+								world.softwareRaster[world.drd].y = world.chunks[id].gy;
+								world.softwareRaster[world.drd].z = world.chunks[id].gz;
+								world.drd++;
 								world.uploadChunkSSBO(id,&shaders);
 
 							}
@@ -1740,7 +1427,7 @@ public:
 				
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					int id = y * (wx * wz) + nz * wx + nx;
-					world.chunks[id].GeneratePerType(selectedType, &world.chunkData[id], gen, nx, y, nz, lod, grass);
+					world.chunks[id].GeneratePerType(world.selectedType, &world.chunkData[id], gen, nx, y, nz, lod, grass);
 				};
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					int id = y * (wx * wz) + nz * wx + nx;
@@ -1763,7 +1450,7 @@ public:
 				int nx = generateArrayId[i].x;
 				int nz = generateArrayId[i].y;
 				for (int y = 0; y < wy; y++) {
-					RecalculateParticles(nx, y, nz);
+					world.RecalculateParticles(nx, y, nz, &shaders);
 				}
 			}
 			for (int i = 0; i < generateCount; i++) {
@@ -1859,10 +1546,10 @@ public:
 
 
 												int lod = 1;
-												softwareRaster[drd].x = world.chunks[id].gx;
-												softwareRaster[drd].y = world.chunks[id].gy;
-												softwareRaster[drd].z = world.chunks[id].gz;
-												drd++;
+												world.softwareRaster[world.drd].x = world.chunks[id].gx;
+												world.softwareRaster[world.drd].y = world.chunks[id].gy;
+												world.softwareRaster[world.drd].z = world.chunks[id].gz;
+												world.drd++;
 												keepRunning = false;
 											}
 										}
@@ -1874,8 +1561,8 @@ public:
 					}
 				}
 			}
-			if (drd > 0 && !viewPort.raytracePrimaryRays) {
-				CallGPUMesh();
+			if (world.drd > 0 && !viewPort.raytracePrimaryRays) {
+				world.CallGPUMesh(viewPort.raytracePrimaryRays,&shaders);
 			}
 			offfr++;
 			

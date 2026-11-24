@@ -16,8 +16,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
-    float lightVal[3840*2160];
 };
 layout(std430, binding = 5) buffer BoolBuffer {
     int triangleAtomic;

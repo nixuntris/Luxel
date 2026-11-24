@@ -9,8 +9,6 @@ layout(std430, binding = 0) buffer GBufferEx {
     uint frame[3840 * 2160];
     vec3 pos[3840*2160];
     int depth[3840* 2160];
-    int voxelId[3840*2160];
-    float lightVal[3840*2160];
 };
 
 layout(std430, binding = 2) buffer VerticesBuffer {
@@ -140,7 +138,6 @@ void main()
                     frame[srcZ * 3840 + srcX] = packRGBA8(getSkyColor(float(frameIndex) / 60.0, camPos, camForward, fragCoord));
                 }
                 depth[srcZ * 3840 + srcX] = 1000000;
-                voxelId[srcZ * 3840 + srcX] = -1;
                 pos[srcZ * 3840 + srcX] = vec3(-1000000.0);
             }
         }

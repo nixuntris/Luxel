@@ -750,6 +750,22 @@ struct World {
 	bool array[mwx][mwz];
 	Chunk* chunks;
 	uint8_t setLod[mwx][mwz];
+	int alreadySpawnedGrass = 0;
+	float* particles;
+	int totalTriangleCount;
+	int totalMeshletCount = 0;
+	int workInFrame = 0;
+	int grass = 0;
+	int waterUpdateFrequency = 4;
+	bool waterSimulationEnabled = true;
+	int waterResolution = 2;
+	CHUNKTYPE selectedType = MOUNTAIN;
+	bool simulateWater = false;
+	int* containsFluids;
+	Math::IVector3* waterSimulationBatch;
+	Math::IVector3 currentBatch[1024 * 1024];
+	Math::IVector3* softwareRaster;
+	int drd = 0;
 	struct GlobalHandle {
 		struct Region {
 			GLuint64 handle = 0;
@@ -760,6 +776,8 @@ struct World {
 		};
 		Region handle[mwx * mwy * mwz];
 	};
+	int lastBatch = 0;
+	bool batchWater = false;
 	GlobalHandle handle;
 	std::vector<ChunkData> chunkData;
 	void Setup() {
@@ -771,6 +789,7 @@ struct World {
 				setLod[x][y] = 0;
 			}
 		}
+		softwareRaster = (Math::IVector3*)(MemAlloc(1024 * 1024 * sizeof(Math::IVector3)));
 	}
 	~World() {
 		chunkData.clear();
@@ -803,6 +822,90 @@ struct World {
 		}
 		return 0;
 	}
+	void CallGPUMesh(bool raytracePrimaryRays, ShaderManager *shaders) {
+
+		if (drd > 0 && !raytracePrimaryRays) {
+			shaders->display.UpdateSSBO(10, softwareRaster, drd * sizeof(Math::IVector3), 0);
+
+			auto batchUploadEnd = std::chrono::high_resolution_clock::now();
+			Anubis::GpuTimer mesh;
+			mesh.Start();
+			Anubis::SwitchShaderStage(shaders->generateMesh.programID);
+			shaders->generateMesh.SetInt(wx, "wx");
+			shaders->generateMesh.SetInt(wy, "wy");
+			shaders->generateMesh.SetInt(wz, "wz");
+			shaders->generateMesh.Use(drd, 1, 1);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_BUFFER_UPDATE_BARRIER_BIT);
+
+			constexpr GLintptr N = 1024 * 1024;
+			const GLintptr endOffset = sizeof(int) + N * sizeof(int);
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders->display.ssboIds[9]);
+
+			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(int), &totalMeshletCount);
+
+			std::vector<int> begin(drd), end(drd);
+			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, sizeof(int),
+				drd * sizeof(int), begin.data());
+			glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, endOffset,
+				drd * sizeof(int), end.data());
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+			if (totalMeshletCount * 64 > 59259259) {
+				std::cout << "Buffer overflow \n";
+			}
+
+			totalTriangleCount = totalMeshletCount * 64 + 64;
+
+			for (int i = 0; i < drd; i++) {
+
+
+				int id = softwareRaster[i].y * (wx * wz) + softwareRaster[i].z * wx + softwareRaster[i].x;
+				chunks[id].beginningTri = begin[i];
+				chunks[id].endTri = end[i];
+			}
+		}
+	}
+	void RecalculateParticlesFullDebug(ShaderManager *shaders) {
+
+		grass = 0;
+		int total = 0;
+		int tt = 0;
+		for (int x = 0; x < wx; x++) {
+			for (int z = 0; z < wz; z++) {
+				for (int y = 0; y < wy; y++) {
+
+					tt += chunks[y * (wx * wz) + z * wx + x].grassList.size();
+				}
+			}
+		}
+		particles = (float*)MemAlloc(tt * 2 * 3 * sizeof(float));
+
+		for (int x = 0; x < wx; x++) {
+			for (int z = 0; z < wz; z++) {
+				for (int y = 0; y < wy; y++) {
+
+					for (auto t : chunks[y * (wx * wz) + z * wx + x].grassList) {
+						for (int i = 0; i < GetRandomValue(1, 2); i++) {
+							particles[total * 3] = (t.x + float(GetRandomValue(-10, 10)) / 10.0f);
+							particles[total * 3 + 1] = (t.y + 1);
+							particles[total * 3 + 2] = (t.z + float(GetRandomValue(-10, 10)) / 10.0f);
+							grass++;
+							total++;
+						}
+
+
+					}
+					chunks[y * (wx * wz) + z * wx + x].grassList.clear();
+				}
+			}
+		}
+		if (grass > 0) {
+			std::cout << "grass: " << grass << "\n";
+			shaders->display.UpdateSSBO(20, particles, grass * 3 * sizeof(float), 0);
+		}
+		free(particles);
+	}
 	inline void uploadChunkSSBO(uint32_t neighbourId, ShaderManager *shaders) {
 		Anubis::SwitchShaderStage(shaders->display.shaderId);
 		shaders->display.UpdateSSBO(
@@ -812,4 +915,298 @@ struct World {
 			neighbourId * sizeof(World::GlobalHandle::Region)
 		);
 	};
+	inline void DeleteWorld(ShaderManager *shaders) {
+
+		for (int nx = 0; nx < wx; nx++) {
+			for (int nz = 0; nz < wz; nz++) {
+
+				array[nx][nz] = false;
+
+				for (int ny = 0; ny < wy; ny++) {
+					int neighbourId = ny * (wx * wz) + nz * wx + nx;
+					chunks[neighbourId].ClearChunkData(&chunkData[neighbourId]);
+					chunks[neighbourId].grassList.clear();
+					uploadChunkSSBO(neighbourId, shaders);
+				}
+			}
+		}
+		free(chunks);
+		Anubis::SwitchShaderStage(shaders->display.shaderId);
+		memset(shaders->display.ssboPointers[9], 0, (1024 * 1024 * 2 + 1) * sizeof(int));
+		memset(shaders->display.ssboPointers[5], 0, (totalMeshletCount + 1) * sizeof(int) * 8);
+		memset(shaders->display.ssboPointers[2], 0, totalTriangleCount * sizeof(uint32_t) * 8);
+		memset(shaders->display.ssboPointers[6], 0, totalTriangleCount * sizeof(uint32_t) * 8);
+		memset(shaders->display.ssboPointers[7], 0, totalMeshletCount * 6 * sizeof(float) * 8);
+		shaders->display.UpdateSSBO(20, 0, maxGrassCount * 3 * sizeof(float), 0);
+		grass = 0;
+	}
+	void SimulateFluidObjects(ShaderManager *shaders, Anubis::Camera camera) {
+		if (workInFrame == 0) {
+
+			Anubis::SwitchShaderStage(shaders->display.shaderId);
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders->display.ssboIds[11]);
+
+			int zero = 0;
+
+			glClearBufferData(GL_SHADER_STORAGE_BUFFER, GL_R32I, GL_RED_INTEGER, GL_INT, &zero);
+
+			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+		}
+
+		Math::Vector3 offset = { camera.position.x / 32 - 960 / 32,0,camera.position.z / 32 - 960 / 32 };
+		int dispatchSize = 960 / 32;
+
+		if (wx < dispatchSize * 2) {
+			dispatchSize = wx;
+			offset.x = 0;
+			offset.z = 0;
+		}
+		if (lastBatch == 0 || !batchWater) {
+
+			Anubis::SwitchShaderStage(shaders->simulateWater.programID);
+
+			shaders->simulateWater.SetInt(wx, "wx");
+			shaders->simulateWater.SetInt(wy, "wy");
+			shaders->simulateWater.SetInt(wz, "wz");
+			shaders->simulateWater.SetInt(wz, "wz");
+			shaders->simulateWater.SetInt(waterResolution, "waterResolution");
+			shaders->simulateWater.SetVector3(offset, "cameraOffset");
+
+			shaders->simulateWater.SetInt(workInFrame, "workGroupIDOffset");
+			shaders->simulateWater.SetInt(waterUpdateFrequency, "workGroupSpread");
+
+			int totalGroupsX = dispatchSize * 2;
+
+			int groupsPerFrame = (totalGroupsX - workInFrame + waterUpdateFrequency - 1) / waterUpdateFrequency;
+
+			groupsPerFrame = groupsPerFrame > 0 ? groupsPerFrame : 0;
+
+			shaders->simulateWater.Use(groupsPerFrame, wy, dispatchSize * 2);
+		}
+		else {
+			auto flush = [&](int count) {
+				Anubis::SwitchShaderStage(shaders->display.shaderId);
+				shaders->display.UpdateSSBO(10, currentBatch, count * sizeof(Math::IVector3), 0);
+
+				Anubis::SwitchShaderStage(shaders->simulateWaterBatched.programID);
+				shaders->simulateWaterBatched.SetInt(wx, "wx");
+				shaders->simulateWaterBatched.SetInt(wy, "wy");
+				shaders->simulateWaterBatched.SetInt(wz, "wz");
+				shaders->simulateWaterBatched.SetInt(waterResolution, "waterResolution");
+				shaders->simulateWaterBatched.Use(count, 1, 1);
+				};
+
+			const int maxBatch = 1024 * 1024;
+			int n = 0;
+			for (int i = workInFrame; i < lastBatch; i += waterUpdateFrequency) {
+				currentBatch[n++] = waterSimulationBatch[i];
+				if (n == maxBatch) {
+					flush(n);
+					n = 0;
+				}
+			}
+			if (n > 0) flush(n);
+		}
+		if (batchWater && workInFrame == waterUpdateFrequency - 1) {
+
+
+			Anubis::SwitchShaderStage(shaders->display.shaderId);
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, shaders->display.ssboIds[11]);
+			glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT |
+				GL_BUFFER_UPDATE_BARRIER_BIT);
+
+			glGetBufferSubData(
+				GL_SHADER_STORAGE_BUFFER,
+				0,
+				wx * wy * wz * sizeof(int) * 2,
+				containsFluids
+			);
+
+			glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+			int updateAble = 0;
+			int shouldUpdate = 0;
+			for (int x = 0; x < wx; x++) {
+				for (int z = 0; z < wz; z++) {
+					if (setLod[x][z] == 1) {
+						for (int y = 0; y < wy; y++) {
+							int chunkId = y * (wx * wz) + z * wx + x;
+							if (containsFluids[chunkId] == 0) {
+								chunkData[chunkId].lastChunkWaterActivity += 1;
+							}
+							else {
+								chunkData[chunkId].lastChunkWaterActivity = 0;
+							}
+							if (chunkData[chunkId].lastChunkWaterActivity < 5) {
+								shouldUpdate++;
+							}
+						}
+					}
+				}
+			}
+			if (shouldUpdate < 30 * 30 * wy / 2) {
+				int i = 0;
+				for (int x = 0; x < wx; x++) {
+					for (int z = 0; z < wz; z++) {
+						if (setLod[x][z] == 1) {
+							for (int y = 0; y < wy; y++) {
+								int chunkId = y * (wx * wz) + z * wx + x;
+								if (chunkData[chunkId].lastChunkWaterActivity < 5) {
+									waterSimulationBatch[i] = { x,y,z };
+									i++;
+								}
+							}
+						}
+					}
+				}
+
+				lastBatch = i;
+			}
+			else {
+				lastBatch = 0;
+			}
+		}
+		workInFrame = (workInFrame + 1) % waterUpdateFrequency;
+	}
+	inline void ChunkDeleteMeshData(int nx, int ny, int nz, ShaderManager *shaders) {
+
+		int neighbourId = ny * (wx * wz) + nz * wx + nx;
+
+		int beginTri = chunks[neighbourId].beginningTri;
+		int endTri = chunks[neighbourId].endTri;
+		int triCount = endTri - beginTri;
+
+		if (chunks[neighbourId].voxelCount != 0) {
+			memset((uint8_t*)shaders->display.ssboPointers[2] + (size_t)beginTri * sizeof(uint32_t),
+				0, (size_t)triCount * sizeof(uint32_t));
+
+			memset((uint8_t*)shaders->display.ssboPointers[6] + (size_t)beginTri * sizeof(uint32_t),
+				0, (size_t)triCount * sizeof(uint32_t));
+
+			int beginMeshlet = beginTri / 64;
+			int endMeshlet = (endTri + 63) / 64;
+			int meshletCount = endMeshlet - beginMeshlet;
+
+			if (meshletCount > 0) {
+				memset((uint8_t*)shaders->display.ssboPointers[5] + (size_t)beginMeshlet * sizeof(int),
+					0, (size_t)meshletCount * sizeof(int));
+
+				memset((uint8_t*)shaders->display.ssboPointers[7] + (size_t)beginMeshlet * 6 * sizeof(float),
+					0, (size_t)meshletCount * 6 * sizeof(float));
+			}
+		}
+	}
+	inline void DeleteColumn(int nx, int nz, ShaderManager* shaders) {
+		array[nx][nz] = false;
+
+		for (int ny = 0; ny < wy; ny++) {
+			int neighbourId = ny * (wx * wz) + nz * wx + nx;
+			ChunkDeleteMeshData(nx, ny, nz, shaders);
+			chunks[neighbourId].ClearChunkData(&chunkData[neighbourId]);
+			chunks[neighbourId].grassList.clear();
+
+			uploadChunkSSBO(neighbourId, shaders);
+		}
+	}
+	inline void RecalculateParticles(int x, int y, int z, ShaderManager *shaders) {
+		Anubis::SwitchShaderStage(shaders->display.shaderId);
+		int total = 0;
+		int tt = chunks[y * (wx * wz) + z * wx + x].grassList.size();
+		if (tt <= 0) return;
+		particles = (float*)MemAlloc(tt * 2 * 3 * sizeof(float));
+
+		for (auto t : chunks[y * (wx * wz) + z * wx + x].grassList) {
+			for (int i = 0; i < Math::GetRandomValueStreamlined(1, 2); i++) {
+				particles[total * 3] = (t.x + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
+				particles[total * 3 + 1] = (t.y + 1);
+				particles[total * 3 + 2] = (t.z + float(Math::GetRandomValueStreamlined(-10, 10)) / 10.0f);
+				grass++;
+				total++;
+			}
+		}
+
+		if (grass > maxGrassCount) grass = maxGrassCount;
+		if (grass > 0) {
+			shaders->display.UpdateSSBO(20, particles, tt * 3 * sizeof(float), alreadySpawnedGrass * 3 * sizeof(float));
+			alreadySpawnedGrass += tt;
+		}
+		free(particles);
+	}
+	inline void SetLODChunks(int x, int z, int lod, Anubis::Camera camera, ShaderManager *shaders) {
+		for (int y = 0; y < wy; y++) {
+			int id = y * (wx * wz) + z * wx + x;
+
+			ChunkDeleteMeshData(x, y, z, shaders);
+
+			chunks[id].ClearChunkData(&chunkData[id]);
+
+			chunkData[id].fluidShortMap.Delete();
+			chunkData[id].fluidByteMap.Delete();
+
+			chunks[id].endTri = 0;
+			chunks[id].oldTri = 0;
+			chunkData[id].updated = false;
+		}
+
+		setLod[x][z] = lod;
+		array[x][z] = true;
+
+		float dist = Vector2Distance(
+			{ (float)x * chunkSize + chunkSize / 2, (float)z * chunkSize + chunkSize / 2 },
+			{ float(camera.position.x), float(camera.position.z) });
+		bool grass = false;
+		if (dist < 1920) grass = true;
+		GenerationData gen;
+		gen.GenerateMountains(x, z);
+#pragma omp parallel for num_threads(4)
+		for (int y = gen.lowestChunkY; y < gen.highestChunkY; y++) {
+			chunks[y * (wx * wz) + z * wx + x].GeneratePerType(selectedType, &chunkData[y * (wx * wz) + z * wx + x], gen, x, y, z, lod, grass);
+
+			chunks[y * (wx * wz) + z * wx + x].GenerateLod(
+				&chunkData[y * (wx * wz) + z * wx + x], x, y, z);
+			chunks[y * (wx * wz) + z * wx + x].Compress(
+				&chunkData[y * (wx * wz) + z * wx + x]);
+		}
+
+		free(gen.heightMap);
+
+		for (int ny = 0; ny < wy; ny++) {
+			int neighbourId = ny * (wx * wz) + z * wx + x;
+			if (x < 0 || ny < 0 || z < 0 || x >= wx || ny >= wy || z >= wz) continue;
+			if (chunks[neighbourId].lod == 0) continue;
+
+			int size = chunkSize / chunks[neighbourId].lod;
+			if (chunkData[neighbourId].skipped) {
+				handle.handle[neighbourId].lod = 32;
+				handle.handle[neighbourId].filled = 1;
+
+				continue;
+			}
+			if (chunkData[neighbourId].voxelCount != 0 &&
+				!chunkData[neighbourId].skipped && chunks[neighbourId].voxelCount > chunkSize * chunkSize * chunkSize) {
+
+				if (chunkData[neighbourId].shortenedData) {
+					chunkData[neighbourId].fluidByteMap.Clear({ size, size, size });
+					chunkData[neighbourId].fluidByteMap.Upload(
+						chunkData[neighbourId].compressedTerrain);
+					chunkData[neighbourId].fluidByteMap.GetBindlessHandle();
+					handle.handle[neighbourId].handle =
+						chunkData[neighbourId].fluidByteMap.handle;
+				}
+				else {
+					chunkData[neighbourId].fluidShortMap.Clear({ size, size, size });
+					uint16_t* tt = chunks[neighbourId].DecompressChunk(
+						&chunkData[neighbourId]);
+					chunkData[neighbourId].fluidShortMap.Upload(tt);
+					free(tt);
+					chunkData[neighbourId].fluidShortMap.GetBindlessHandle();
+					handle.handle[neighbourId].handle =
+						chunkData[neighbourId].fluidShortMap.handle;
+				}
+
+				handle.handle[neighbourId].lod = chunkData[neighbourId].lod;
+			}
+		}
+
+	}
 };
