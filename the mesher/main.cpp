@@ -71,7 +71,7 @@ public:
 			}
 
 		}
-		std::cout << "overfit "<<leftOverIds<<"\n";
+		//std::cout << "overfit "<<leftOverIds<<"\n";
 	}
 	~GPUMap() {
 		free(hash);
@@ -141,8 +141,8 @@ public:
 		omp_set_num_threads(32);
 		viewPort.camera.target = { 0,1,0 };
 		SetRandomSeed(100);
-		GPUMap mapp(2560 * 1440);
-		mapp.TestGPUMap();
+//		GPUMap mapp(2560 * 1440);
+	///	mapp.TestGPUMap();
 		shaders.Load();
 		int maxSSBOCount = 0;
 		glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS, &maxSSBOCount);
@@ -157,7 +157,6 @@ public:
 		world.totalTriangleCount = 59259259/2;
 		world.totalMeshletCount = world.totalTriangleCount/64;
 		shaders.display.CreateSSBO(3, sizeof(world.handle));
-		shaders.display.CreateSSBO(0, sizeof(uint32_t) * 3840 * 2160 * 6);
 		shaders.display.CreatePersistentSSBO(5, (world.totalMeshletCount + 1) * sizeof(int) * 8);
 		shaders.display.CreatePersistentSSBO(2, world.totalTriangleCount * sizeof(uint32_t) * 8);
 		shaders.display.CreatePersistentSSBO(6, world.totalTriangleCount * sizeof(uint32_t) * 8);
@@ -202,6 +201,13 @@ public:
 				if (ImGui::Button(resLabel.c_str(), ImVec2(-1, 0))) {
 					currentResolutionWindow = i;
 					window.Resize(graphicsSettings.resolutions[currentResolutionWindow].width, graphicsSettings.resolutions[currentResolutionWindow].height);
+					shaders.display.DeleteSSBO(0);
+					shaders.display.DeleteSSBO(1);
+					shaders.display.DeleteSSBO(4);
+					shaders.display.CreateSSBO(0, sizeof(uint32_t) * resolution.width * resolution.height * 1);
+					shaders.display.CreateSSBO(1, sizeof(uint32_t) * resolution.width * resolution.height * 4);
+					shaders.display.CreateSSBO(4, sizeof(uint32_t) * resolution.width * resolution.height * 1);
+
 					resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
 					resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
 					matProj = MatrixPerspective(90 * DEG2RAD, ((double)resolution.width / (double)resolution.height), 0.1, 100000.0);
@@ -529,6 +535,9 @@ public:
 				viewPort.camera.position = { (double)wx * chunkSize/2,200,(double)wz * chunkSize / 2 };
 				world.waterSimulationBatch = (Math::IVector3*)MemAlloc(wx * wy * wz*sizeof(Math::IVector3));
 				world.chunks = (Chunk*)MemAlloc(wx * wz * wy * sizeof(Chunk));
+				shaders.display.CreateSSBO(0, sizeof(uint32_t) * resolution.width * resolution.height * 1);
+				shaders.display.CreateSSBO(1, sizeof(uint32_t) * resolution.width * resolution.height * 4);
+				shaders.display.CreateSSBO(4, sizeof(uint32_t) * resolution.width * resolution.height * 1);
 
 				shaders.display.CreateSSBO(11, wx* wy* wz * sizeof(int)*2);
 				world.containsFluids = (int*)MemAlloc(wx * wz * wy * sizeof(int) * 2);
@@ -705,11 +714,10 @@ public:
 								int id = ny * (wx * wz) + nz * wx + nx;
 								if (world.chunkData[id].lod != 32 && !world.chunkData[id].skipped) { //since lod 32 works as a fully filled chunk
 									// 4 bits per voxel
-									// 0 - set or not set
-									// 0 - direction set to left
-									// 0 - direction set to right
-									// 0 - direction set to up
-									// 0 - direction set to down
+									// 0 - 
+									// 0 - 2 bits for ids, AIR, WATER, SAND, that's for sure
+									// 0 - direction set to left or right
+									// 0 - direction set to forward of back
 									world.chunkData[id].waterMap.Clear({ 32 / 2 / world.waterResolution,32 / world.waterResolution,32 / world.waterResolution });
 									world.chunkData[id].waterMap.Upload(preset);
 									world.chunkData[id].waterMap.GetBindlessHandle();
@@ -1566,7 +1574,7 @@ public:
 			}
 			offfr++;
 			
-			viewPort.Display(frame,resolution.height);
+			viewPort.Display(frame, resolution.width,resolution.height);
 			Anubis::Quad quad;
 			quad.Create();
 			window.DrawQuad(quad);

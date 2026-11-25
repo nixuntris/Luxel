@@ -1,10 +1,14 @@
 #version 460
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
+};
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
 };
 
 layout(std430, binding = 9) buffer MeshletCounter {
@@ -105,7 +109,7 @@ void DrawQuadSoftwareCS(
                 if (w3 > 0.0 || (w3 == 0.0 && !tl3)) continue;
             }
             
-            int idx = y * 3840 + x;
+            int idx = y * renderWidth + x;
 
             if (depth[idx] > quadDepth) {
                 depth[idx] = quadDepth;

@@ -5,10 +5,14 @@
 
 layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
+};
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
 };
 
 uint packRGBA8(vec4 color)
@@ -209,12 +213,12 @@ float calculateLightStrength(int frameIndex)
 }
 void main() {
     ivec2 gid = ivec2(gl_GlobalInvocationID.xy);
-    int idx = gid.y * 3840 + gid.x;
+    int idx = gid.y * renderWidth+ gid.x;
     vec3 ro = camPos;
-    if (pos[(gid.y*2+1) * 3840 + gid.x*2] != vec3(-1000000.0) ||
-    pos[(gid.y*2+1) * 3840 + gid.x*2+1] != vec3(-1000000.0) ||
-    pos[(gid.y*2) * 3840 + gid.x*2+1] != vec3(-1000000.0) ||
-    pos[(gid.y*2) * 3840 + gid.x*2] != vec3(-1000000.0)) {
+    if (pos[(gid.y*2+1) * renderWidth+ gid.x*2] != vec3(-1000000.0) ||
+    pos[(gid.y*2+1) * renderWidth+ gid.x*2+1] != vec3(-1000000.0) ||
+    pos[(gid.y*2) * renderWidth+ gid.x*2+1] != vec3(-1000000.0) ||
+    pos[(gid.y*2) * renderWidth+ gid.x*2] != vec3(-1000000.0)) {
        return;
     }
     vec2 uv = (vec2(gid) + 0.5) / (vec2(renderWidth,renderHeight)/2);
@@ -289,9 +293,9 @@ void main() {
     if (transmittance < 0.999) {
         vec3 strength = vec3(calculateLightStrength(frameIndex));
       
-        if ((gid.y*2 + frameIndex) % 2 != 0) frame[(gid.y*2) * 3840 + gid.x*2] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2) * 3840 + gid.x*2]).rgb * transmittance*strength), 1.0));
-        if ((gid.y*2+1 + frameIndex) % 2 != 0) frame[(gid.y*2+1) * 3840 + gid.x*2] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2+1) * 3840 + gid.x*2]).rgb * transmittance*strength), 1.0));
-        if ((gid.y*2+1 + frameIndex) % 2 != 0) frame[(gid.y*2+1) * 3840 + gid.x*2+1] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2+1) * 3840 + gid.x*2+1]).rgb * transmittance*strength), 1.0));
-        if ((gid.y*2 + frameIndex) % 2 != 0) frame[(gid.y*2) * 3840 + gid.x*2+1] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2) * 3840 + gid.x*2+1]).rgb * transmittance*strength), 1.0));
+        if ((gid.y*2 + frameIndex) % 2 != 0) frame[(gid.y*2) * renderWidth+ gid.x*2] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2) * renderWidth + gid.x*2]).rgb * transmittance*strength), 1.0));
+        if ((gid.y*2+1 + frameIndex) % 2 != 0) frame[(gid.y*2+1) * renderWidth+ gid.x*2] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2+1) * renderWidth+ gid.x*2]).rgb * transmittance*strength), 1.0));
+        if ((gid.y*2+1 + frameIndex) % 2 != 0) frame[(gid.y*2+1) * renderWidth+ gid.x*2+1] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2+1) * renderWidth+ gid.x*2+1]).rgb * transmittance*strength), 1.0));
+        if ((gid.y*2 + frameIndex) % 2 != 0) frame[(gid.y*2) * renderWidth + gid.x*2+1] = packRGBA8(vec4((scatteredLight*strength + unpackRGBA8(frame[(gid.y*2) * renderWidth+ gid.x*2+1]).rgb * transmittance*strength), 1.0));
     }
 }

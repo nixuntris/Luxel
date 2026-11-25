@@ -112,7 +112,7 @@ struct ShaderManager {
 		display.LoadFromFile(
 			path("quad_display_shader.fs").c_str(),
 			"Anubis/BaseShaders/quad_display_shader.vs"
-		);
+		); //problematic shader
 		primaryRays.Setup(path("PrimaryRays.glsl").c_str());
 		rasterizer.Setup(path("Rasterize.glsl").c_str());
 		frustumCull.Setup(path("frustumCull.glsl").c_str());

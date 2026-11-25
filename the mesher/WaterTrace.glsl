@@ -6,11 +6,17 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 const int chunkSize = 32;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+
 
 struct Region {
     uvec2 handle;
@@ -151,7 +157,7 @@ void main() {
     pixel.y += (frameIndex + 1) % 2;
     if (pixel.x >= renderWidth || pixel.y >= renderHeight) return;
 
-    int pixelIndex = pixel.y * 3840 + pixel.x;
+    int pixelIndex = pixel.y * renderWidth+ pixel.x;
 
     vec2 ndc = vec2((pixel.x + 0.5) / renderWidth * 2.0 - 1.0,
                     1.0 - (pixel.y + 0.5) / renderHeight * 2.0);
@@ -222,7 +228,7 @@ void main() {
 
     vec2 refractionOffset = surfaceNormal.xz * 6.0 * (1.0 - cosIncidence * 0.5);
     ivec2 refractedPixel = clamp(pixel + ivec2(refractionOffset), ivec2(0), ivec2(renderWidth - 1, renderHeight - 1));
-    int refractedIndex = refractedPixel.y * 3840 + refractedPixel.x;
+    int refractedIndex = refractedPixel.y * renderWidth+ refractedPixel.x;
     bool refractedSampleIsValid = float(depth[refractedIndex]) > firstWaterDistance * dot(rayDir, camForward);
 
     vec3 background = unpackRGBA8(frame[refractedSampleIsValid ? refractedIndex : pixelIndex]).rgb;

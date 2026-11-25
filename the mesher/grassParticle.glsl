@@ -6,10 +6,14 @@
 layout (local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
+};
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
 };
 
 layout(std430, binding = 20) buffer PointMap {
@@ -140,7 +144,7 @@ void DrawQuadSoftwareCS(
                 if (w3 > 0.0 || (w3 == 0.0 && !tl3)) continue;
             }
 
-            int idx = y * 3840 + x;
+            int idx = y * renderWidth + x;
 
             if (depth[idx] > quadDepth) {
                 depth[idx] = quadDepth;
@@ -262,7 +266,7 @@ void main()
             cdd.rgb *= 1.01;
             
             uint val = packRGBA8(cdd);
-            int idx = int(p1.y) * 3840 + int(p1.x);
+            int idx = int(p1.y) * renderWidth + int(p1.x);
             if ((int(p1.y) + frameIndex) % 2 == 0) continue;
 
             if (depth[idx] > int(distancer)) {

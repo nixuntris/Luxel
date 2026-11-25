@@ -11,11 +11,16 @@ in float depthr;
 layout(std430, binding = 2) buffer VerticesBuffer {
     uint vertices[];
 };
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+
 uint packRGBA8(vec4 color)
 {
    vec4 c = clamp(color, 0.0, 1.0);
@@ -32,13 +37,14 @@ uniform int voxelType;
 
 uniform int frameIndex;
 uniform int vHeight;
+uniform int vDepth;
 void main() {
     int x = int(gl_FragCoord.x);
     int y = int(gl_FragCoord.y);
     
     
     if ((y + frameIndex) % 2 == 0) discard;
-    int idx = (vHeight - y) * 3840 + x; // Corrected index calculation
+    int idx = (vHeight - y) * vDepth + x; // Corrected index calculation
     
     if (depth[idx] > int(depthr)/100) {
         depth[idx] = int(depthr)/100;

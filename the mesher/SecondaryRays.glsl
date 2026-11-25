@@ -10,11 +10,17 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 //This shader somewhere has a bug causing any chunk over wy 0 to have bugged lighting
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+
 uint packRGBA8(vec4 color)
 {
     vec4  c     = clamp(color, 0.0, 1.0);
@@ -50,9 +56,6 @@ struct Region {
 layout(std430, binding = 3) buffer BitHandles {
     Region handles[];
 };
-const int WIDTH = 3840;
-const int HEIGHT = 2160;
-
 const vec3 offsets[9] = vec3[](
     vec3(0.0, 0.0, 0.0),
     vec3(0.2, 0.1, 0.0),
@@ -288,6 +291,8 @@ bool sunRayOccluded(vec3 ro, vec3 rd, int maxSteps)
     }
     return false;
 }
+uniform int renderWidth;
+uniform int renderHeight;
 
 
 void main()
@@ -296,7 +301,7 @@ void main()
     gid.y*=2;
     gid.x*=2;
     gid.y+=(frameIndex+1)%2;
-    int idx = gid.y * 3840 + gid.x;
+    int idx = gid.y * renderWidth + gid.x;
     if (depth[idx] == 1000000) return;
      float time = float(frameIndex) *timeSpeed;
    
@@ -359,6 +364,6 @@ void main()
     vec3 col = prev.rgb * (mean*calculateLightStrength(frameIndex)-cloudRadiance);
     
     uint pp = packUnorm4x8(vec4(col, 1.0));
-    frame[ gid.y * 3840 + gid.x] = pp;
-    frame[ gid.y * 3840 + gid.x+1] = pp;
+    frame[ gid.y * renderWidth + gid.x] = pp;
+    frame[ gid.y * renderWidth+ gid.x+1] = pp;
 }

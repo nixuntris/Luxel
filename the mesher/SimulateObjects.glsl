@@ -12,11 +12,16 @@ layout (local_size_x = groupSizeX, local_size_y = groupSizeY, local_size_z = gro
 uniform int waterResolution;
 int cellsPerChunk = chunkSize / waterResolution;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+
 layout(std430, binding = 11) buffer FluidSimulationData {
     int containsFluids[];
 };

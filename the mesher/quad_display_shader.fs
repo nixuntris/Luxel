@@ -4,11 +4,17 @@ uniform vec4 color;
 
 
 
-
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
+};
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+layout(std430, binding = 2) buffer VerticesBuffer {
+    float vertices[];
 };
 struct Region {
     uvec2 handle;
@@ -18,42 +24,38 @@ struct Region {
 layout(std430, binding = 3) buffer BitHandles {
     Region handles[];
 };
-
-layout(std430, binding = 4) buffer LightingHash {
-    float lightData[];
-};
 layout(std430, binding = 5) buffer BoolBuffer {
     int triangleAtomic;
     int chunkAtomic;
     int triangleActive[];
 };
-layout(std430, binding = 2) buffer VerticesBuffer {
-    float vertices[];
-};
-layout(std430, binding = 8) buffer VMeshletBuffer {
-    float meshletVertices[];
-};
-
-layout(std430, binding = 20) buffer PointMap {
-    float particlePoint[];
+layout(std430, binding = 6) buffer Colors {
+    uint colors[];
 };
 layout(std430, binding = 7) buffer AABBBuffer {
     float AABBCorners[];
 };
 
+layout(std430, binding = 8) buffer VMeshletBuffer {
+    float meshletVertices[];
+};
 layout(std430, binding = 9) buffer MeshletCounter {
     int meshletCounter;
     int chunkBeginning[1024];
     int chunkEnd[1024];
 };
 
+layout(std430, binding = 10) buffer GPUBatch {
+    int gpuBatch[1024*1024];
+};
+
+layout(std430, binding = 20) buffer PointMap {
+    float particlePoint[];
+};
 layout(std430, binding = 11) buffer FluidSimulationData {
     int containsFluids[];
 };
 
-layout(std430, binding = 10) buffer GPUBatch {
-    int gpuBatch[1024*1024];
-};
 uint packRGBA8(vec4 color)
 {
    vec4 c = clamp(color, 0.0, 1.0);
@@ -90,9 +92,10 @@ vec4 unpackRGBA8(uint packedr)
 uniform float renderPercentage;
 uniform int frameIndex;
 uniform int resY;
+uniform int resX;
 vec3 fetchFrame(ivec2 p) {
     p = clamp(p, ivec2(0), ivec2(3839, 2159));
-    return unpackRGBA8(frame[p.y * 3840 + p.x]).rgb;
+    return unpackRGBA8(frame[p.y * resX + p.x]).rgb;
 }
 
 void main() {

@@ -13,10 +13,11 @@ struct ViewPort {
 	float planeDs[6];
 	bool raytracePrimaryRays = false;
 	float renderPercentage = 1;
-	void Display(int frame, int wHeight) {
+	void Display(int frame, int wWidth,int wHeight) {
 		shaders->display.Use();
 		shaders->display.SetInt(frame, "frameIndex");
 		shaders->display.SetInt(wHeight, "resY");
+		shaders->display.SetInt(wWidth, "resX");
 		shaders->display.SetFloat(renderPercentage, "renderPercentage");
 		shaders->display.SetVector4({ 1.0f, 1.0f, 1.0f, 1.0f }, "color");
 
@@ -218,6 +219,8 @@ struct ViewPort {
 		Anubis::SwitchShaderStage(shaders->hizBuilder.programID);
 		shaders->hizBuilder.SetInt(frame - 1, "frameIndex");
 		shaders->hizBuilder.SetInt(1, "buildLevel");
+		shaders->hizBuilder.SetInt(resolution.width, "renderWidth");
+		shaders->hizBuilder.SetInt(resolution.height, "renderHeight");
 
 		shaders->hizBuilder.Use(resolution.width / 32, 1, resolution.height / 32);
 	}

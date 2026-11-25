@@ -12,11 +12,17 @@ layout(std430, binding = 6) buffer Colors {
 };
 uniform float size;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
+
 layout(std430, binding = 5) buffer BoolBuffer {
     int triangleAtomic;
     int chunkAtomic;

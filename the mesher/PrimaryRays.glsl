@@ -6,10 +6,14 @@ layout (local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 const int chunkSize = 32;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
+};
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
 };
 
 struct Region {
@@ -138,11 +142,6 @@ void main() {
     uint color = 0xFFF2BF87u; 
     int axis = 0;
     bool hitAnything = false;
-    if (depth[(px.y/4) * 3840 + (px.x/4)]==4096) {
-        
-        frame[px.y * 3840 + px.x] = color;
-        return;
-    }
     for (int i = 0; i < 960; i++) {
         int lod;
         uint v = readVoxelData(ivec3(cell),lod);
@@ -212,7 +211,7 @@ void main() {
     }
     
     int distanceTravelled = int(dot(cell-camPos, camForward));
-    if (distanceTravelled<depth[px.y * 3840 + px.x] && hitAnything) {
+    if (distanceTravelled<depth[px.y * renderWidth + px.x] && hitAnything) {
     
         uint hash = hashVec3(vec3(cell));
         
@@ -228,9 +227,9 @@ void main() {
                     (((((color >>  8) & 0xFFu) * 95u) / 100u) <<  8) |
                     (((((color >> 16) & 0xFFu) * 95u) / 100u) << 16);
         }
-        depth[px.y * 3840 + px.x] = distanceTravelled;
-        frame[px.y * 3840 + px.x] = color;
-        pos[px.y * 3840 + px.x] = vec3(cell);
+        depth[px.y * renderWidth + px.x] = distanceTravelled;
+        frame[px.y * renderWidth+ px.x] = color;
+        pos[px.y * renderWidth+ px.x] = vec3(cell);
     }
     
 }

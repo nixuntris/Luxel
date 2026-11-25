@@ -5,12 +5,15 @@ uniform int buildLevel;
 uniform vec3 camPos;
 uniform vec3 camForward;
 
-layout(std430, binding = 0) buffer GBufferEx {
-    uint frame[3840 * 2160];
-    vec3 pos[3840*2160];
-    int depth[3840* 2160];
+layout(std430, binding = 0) buffer GBufferFrame {
+    uint frame[];
 };
-
+layout(std430, binding = 1) buffer GBufferPos {
+    vec3 pos[];
+};
+layout(std430, binding = 4) buffer GBufferDepth {
+    int depth[];
+};
 layout(std430, binding = 2) buffer VerticesBuffer {
     float vertices[];
 };
@@ -116,6 +119,8 @@ uint packRGBA8(vec4 color)
         ( bytes.b << 16 ) |
         ( bytes.a << 24 );
 }
+uniform int renderWidth;
+uniform int renderHeight;
 
 void main()
 {
@@ -135,10 +140,10 @@ void main()
 
                 if ((dz * 2 + z+frameIndex)%2==0) {
                     vec2 fragCoord = vec2(float(srcX) + 0.5, RESOLUTION.y - float(srcZ) - 0.5);
-                    frame[srcZ * 3840 + srcX] = packRGBA8(getSkyColor(float(frameIndex) / 60.0, camPos, camForward, fragCoord));
+                    frame[srcZ * renderWidth + srcX] = packRGBA8(getSkyColor(float(frameIndex) / 60.0, camPos, camForward, fragCoord));
                 }
-                depth[srcZ * 3840 + srcX] = 1000000;
-                pos[srcZ * 3840 + srcX] = vec3(-1000000.0);
+                depth[srcZ * renderWidth + srcX] = 1000000;
+                pos[srcZ * renderWidth+ srcX] = vec3(-1000000.0);
             }
         }
 
