@@ -256,6 +256,7 @@ public:
 		chunkData->compressedTerrain = (uint8_t*)MemAlloc(chunkSize * chunkSize * chunkSize * sizeof(uint8_t));
 		chunkData->shortenedData = true;
 		if (grass) grassList.resize(32 * 32);
+		/*
 		for (uint8_t x = 0; x < chunkSize; x += 1) {
 			for (uint8_t z = 0; z < chunkSize; z += 1) {
 				int terrainHeight = generationData.heightMap[x + z * chunkSize];
@@ -296,7 +297,7 @@ public:
 					}
 				}
 			}
-		}
+		}*/
 	}
 	inline void CarveCaves(ChunkData* chunkData, int gx, int gy, int gz, int lod = 1) {
 		const int baseWX = gx * chunkSize;

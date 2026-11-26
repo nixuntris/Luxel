@@ -14,92 +14,7 @@
 #include "Structure.hpp"
 #include "ParticleManager.hpp"
 #include "Viewport.hpp"
-
-struct GPUHash {
-	Math::IVector3 key;
-	uint16_t value;
-};
-class GPUMap {
-	int size;
-	GPUHash* hash;
-public:
-	const static uint32_t hashValue(Math::IVector3 v) {
-		uint32_t x = v.x;
-		uint32_t y = v.y;
-		uint32_t z = v.z;
-
-		x *= 0x8da6b343u;
-		y *= 0xd8163841u;
-		z *= 0xcb1ab31fu;
-
-		uint32_t h = x ^ (y << 11) ^ (y >> 21) ^ (z << 22) ^ (z >> 10);
-
-		h ^= h >> 16;
-		h *= 0x85ebca6bu;
-		h ^= h >> 13;
-		h *= 0xc2b2ae35u;
-		h ^= h >> 16;
-
-		return h;
-	}
-	int leftOverIds = 0;
-	GPUMap(int size) {
-		this->size = size;
-		this->leftOverIds = size;
-		hash = (GPUHash*)MemAlloc(this->size*sizeof(GPUHash));
-		for (int i = 0; i < this->size; i++) {
-			hash[i].key = {-1,-1,-1}; //wondering whether the taken flag I want value or key be
-			hash[i].value = 0;
-		}
-	}
-	void FetchValue(Math::IVector3 key) {
-		
-	}
-	void SetValue(Math::IVector3 key, uint16_t value) {
-		
-		int index = hashValue(key) % this->size;
-		for (int i = index; i < this->size; i++) {
-			if (this->hash[i].key.x == -1) {
-				this->hash[i].key = key;
-				this->leftOverIds -= 1;
-				this->hash[i].value = value;
-				return;
-			}
-			else if (this->hash[i].key.x == key.x && this->hash[i].key.y == key.y && this->hash[i].key.z == key.z) {
-				this->hash[i].value = value;
-				return;
-			}
-
-		}
-		//std::cout << "overfit "<<leftOverIds<<"\n";
-	}
-	~GPUMap() {
-		free(hash);
-	}
-	void TestGPUMap()
-	{
-		constexpr float voxelSize = 1.0f / 16.0f;
-
-		for (int i = 0; i < 2560*1440; i++)
-		{
-			Math::IVector3 pos = {
-				GetRandomValue(-100000, 100000),
-				GetRandomValue(-100000, 100000),
-				GetRandomValue(320, 4800)
-			};
-
-			uint16_t value = GetRandomValue(1, 65535);
-
-			Math::IVector3 voxel = {
-				pos.x,
-				pos.y,
-				pos.z
-			};
-
-			SetValue(voxel, value);
-		}
-	}
-};
+#include "MagicaVoxelFileParser.hpp"
 
 class App {
 	Anubis::Window window;
@@ -122,6 +37,7 @@ class App {
 	bool mainMenu = false;
 	bool releasedMenu = false;
 	int frame = 0;
+	VoxFileManager manager;
 public:
 	App() {
 		//Implement HiZ for meshlets (Not as necessary right now, but don't know how it will perform on weaker hardware and might need it, IDK)
@@ -166,6 +82,7 @@ public:
 		ImGui_ImplOpenGL3_Init("#version 460");
 		viewPort.shaders = &shaders;
 		structureManager.Init();
+		manager.LoadLevel("");
 		
 	}
 	inline void DebugMenu(double grassTimeMs, double frustumTimeMs, double rasterTimeMs, double secondaryRaysMs,double waterMs, int trianglesRendered) {
@@ -565,13 +482,13 @@ public:
 			window.UpdateBuffer();
 		}
 	}
-	void PreGenerateFullDebug(int setLod=0) {
+	void PreGenerateFullDebugDev(int setLod = 0) {
 		START_TIMER(data_gen)
-		for (int nx = 0; nx < wx; nx++) {
-			for (int nz = 0; nz < wz; nz++) {
-				world.array[nx][nz] = true;
+			for (int nx = 0; nx < wx; nx++) {
+				for (int nz = 0; nz < wz; nz++) {
+					world.array[nx][nz] = true;
+				}
 			}
-		}
 #pragma omp for collapse(2)
 		for (int nx = 0; nx < wx; nx++) {
 			for (int nz = 0; nz < wz; nz++) {
@@ -593,12 +510,12 @@ public:
 					world.chunkData[y * (wx * wz) + nz * wx + nx].lod = 0;
 				}
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
-					world.chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(world.selectedType,&world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
+					world.chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(world.selectedType, &world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
 				};
-				
+
 				int base = 0;
 				int cy = gen.highestChunkY - 2;
-				#define SET_VOXEL(x, y, z, block) do { \
+#define SET_VOXEL(x, y, z, block) do { \
 					int _x = (x), _y = (y), _z = (z); \
 					if (_x >= 0 && _x < 32 && _z >= 0 && _z < 32 && _y >= 0 && _y < wy * 32) { \
 						ChunkData& _c = world.chunkData[(_y / 32) * (wx * wz) + nz * wx + nx]; \
@@ -629,7 +546,7 @@ public:
 						} \
 					} \
 				} while (0)
-				
+
 				auto spawnObject = [&](int dx, int dy, int dz, int object) {
 
 					if (lod != 1 || !spawnAnimatedObjects) {
@@ -683,9 +600,9 @@ public:
 				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
 					if (!world.chunkData[y * (wx * wz) + nz * wx + nx].skipped) {
 						if (!world.chunks[y * (wx * wz) + nz * wx + nx].generatedAtLod) world.chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
-						if (!world.chunkData[y*(wx*wz)+nz*wx+nx].shortenedData) world.chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
+						if (!world.chunkData[y * (wx * wz) + nz * wx + nx].shortenedData) world.chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
 					}
-					
+
 				};
 
 				world.setLod[nx][nz] = lod;
@@ -739,7 +656,7 @@ public:
 						int k = 24 / world.waterResolution;
 						for (int y = -8 / world.waterResolution; y < 8 / world.waterResolution; y++) {
 							preset[(x)+(y + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
-							preset[(x)+(y+1 + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
+							preset[(x)+(y + 1 + k) * (16 / world.waterResolution) + (z) * (16 / world.waterResolution) * (32 / world.waterResolution)] |= (1 << 4);
 						}
 					}
 				}
@@ -772,19 +689,19 @@ public:
 			}
 		}
 		END_TIMER(data_gen)
-		START_TIMER(upload)
-		int maxCount = wx * wy * wz;
+			START_TIMER(upload)
+			int maxCount = wx * wy * wz;
 
 		Anubis::GPUONLYByteMap** byteMapBatch = new Anubis::GPUONLYByteMap * [maxCount];
 		uint8_t** byteMapData = new uint8_t * [maxCount];
 		Math::IVector3* byteMapSizes = new Math::IVector3[maxCount];
-		int* byteMapChunkIds = new int[maxCount]; 
+		int* byteMapChunkIds = new int[maxCount];
 		int byteMapCount = 0;
 
 		Anubis::GPUONLYShortMap** shortMapBatch = new Anubis::GPUONLYShortMap * [maxCount];
 		uint16_t** shortMapData = new uint16_t * [maxCount];
 		Math::IVector3* shortMapSizes = new Math::IVector3[maxCount];
-		int* shortMapChunkIds = new int[maxCount]; 
+		int* shortMapChunkIds = new int[maxCount];
 		int shortMapCount = 0;
 
 		for (int nx = 0; nx < wx; nx++) {
@@ -822,7 +739,7 @@ public:
 							shortMapBatch[shortMapCount] = &map;
 							shortMapData[shortMapCount] = world.chunks[neighbourId].DecompressChunk(&world.chunkData[neighbourId]);
 							shortMapSizes[shortMapCount] = { size, size, size };
-							shortMapChunkIds[shortMapCount] = neighbourId; 
+							shortMapChunkIds[shortMapCount] = neighbourId;
 							shortMapCount++;
 						}
 					}
@@ -863,7 +780,282 @@ public:
 		delete[] shortMapSizes;
 		delete[] byteMapSizes;
 		END_TIMER(upload)
-		shaders.display.UpdateSSBO(3, &world.handle, sizeof(world.handle), 0);
+			shaders.display.UpdateSSBO(3, &world.handle, sizeof(world.handle), 0);
+		world.RecalculateParticlesFullDebug(&shaders);
+		PreCalculateMesh();
+	}
+	void PreGenerateFullDebug(int setLod = 0) {
+		START_TIMER(data_gen)
+			for (int nx = 0; nx < wx; nx++) {
+				for (int nz = 0; nz < wz; nz++) {
+					world.array[nx][nz] = true;
+				}
+			}
+#pragma omp for collapse(2)
+		for (int nx = 0; nx < wx; nx++) {
+			for (int nz = 0; nz < wz; nz++) {
+				float dist = Vector2Distance({ (float)nx * chunkSize + chunkSize / 2,(float)nz * chunkSize + chunkSize / 2 }, { float(viewPort.camera.position.x),float(viewPort.camera.position.z) });
+				bool grass = false;
+
+				int lod = 1;
+				if (dist > 960) lod = 2;
+				if (dist > 960 * 2) lod = 4;
+				if (dist > 960 * 4) lod = 8;
+				if (dist > 960 * 8) lod = 16;
+				if (dist > 960 * 12) lod = 32;
+				if (lod == 1) grass = true;
+
+				GenerationData gen;
+				gen.GenerateMountains(nx, nz);
+				gen.highestChunkY += 3;
+				for (int y = 0; y < wy; y++) {
+					world.chunkData[y * (wx * wz) + nz * wx + nx].lod = 0;
+				}
+				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
+					world.chunks[y * (wx * wz) + nz * wx + nx].GeneratePerType(world.selectedType, &world.chunkData[y * (wx * wz) + nz * wx + nx], gen, nx, y, nz, lod, grass);
+				};
+
+				int base = 0;
+				int cy = gen.highestChunkY - 2;
+#define SET_VOXEL(x, y, z, block) do { \
+					int _x = (x), _y = (y), _z = (z); \
+					if (_x >= 0 && _x < 32 && _z >= 0 && _z < 32 && _y >= 0 && _y < wy * 32) { \
+						ChunkData& _c = world.chunkData[(_y / 32) * (wx * wz) + nz * wx + nx]; \
+						if (!_c.skipped) { \
+							int _id = IDX(_x, _y % 32, _z, 32); \
+							uint8_t _v = (uint8_t)(block); \
+							if (_c.shortenedData) { \
+								if (_c.compressedTerrain) { \
+									if (_c.compressedTerrain[_id] == 0 && _v != 0) _c.voxelCount++; \
+									_c.compressedTerrain[_id] = _v; \
+								} \
+							} else if (_c.compressed) { \
+								uint8_t _cv = 0; \
+								for (int _i = 0; _i < _c.paletteSize; _i++) \
+									if (_c.palette[_i] == _v) { _cv = (uint8_t)(_i + 1); break; } \
+								if (_cv == 0 && _v != 0 && _c.paletteSize < 255) { \
+									_c.palette[_c.paletteSize] = _v; \
+									_cv = (uint8_t)(++_c.paletteSize); \
+								} \
+								if (_cv != 0 || _v == 0) { \
+									if (_c.compressedTerrain[_id] == 0 && _cv != 0) _c.voxelCount++; \
+									_c.compressedTerrain[_id] = _cv; \
+								} \
+							} else if (_c.terrain) { \
+								if (_c.terrain[_id] == 0 && _v != 0) _c.voxelCount++; \
+								_c.terrain[_id] = _v; \
+							} \
+						} \
+					} \
+				} while (0)
+
+				auto spawnObject = [&](int dx, int dy, int dz, int object) {
+
+					if (lod != 1 || !spawnAnimatedObjects) {
+						StructureDataHolder* tree = structureManager.structureList[object].GetRandomVariant();
+						uint8_t* positions = tree->positions;
+						uint16_t* values = tree->values;
+						for (int i = 0; i < tree->voxelCount; i++) {
+
+							int x = positions[i * 3 + 0];
+							int y = positions[i * 3 + 1];
+							int z = positions[i * 3 + 2];
+							uint16_t type = values[i];
+							SET_VOXEL(dx + x, dy + y, dz + z, type);
+						}
+
+					}
+					else {
+						StructureDataHolder* tree = structureManager.structureList[object].GetRandomVariant();
+						uint8_t* positions = tree->positions;
+						uint16_t* values = tree->values;
+						for (int i = 0; i < tree->voxelCount; i++) {
+
+							int x = positions[i * 3 + 0];
+							int y = positions[i * 3 + 1];
+							int z = positions[i * 3 + 2];
+							uint16_t type = values[i];
+							SET_VOXEL(dx + x, dy + y, dz + z, 254);
+						}
+
+						AnimatedObject ao({ (float)dx + nx * 32,(float)dy + 16,(float)dz + nz * 32 }, 0);
+
+						world.animatedObjects.push_back(ao);
+					}
+					};
+				if (world.selectedType == MOUNTAIN) {
+					for (int i = 0; i < Math::GetRandomValueStreamlinedFast(0, 4); i++) {
+						int dx = Math::GetRandomValueStreamlinedFast(10, 20);
+						int dz = Math::GetRandomValueStreamlinedFast(10, 20);
+						int baseY = gen.heightMap[dx + dz * chunkSize];
+						if (baseY > 250) continue;
+						if (lod == 1) {
+
+							spawnObject(dx, baseY, dz, 0);
+						}
+					}
+				}
+				for (int y = 0; y < gen.lowestChunkY; y++) {
+					world.handle.handle[y * (wx * wz) + nz * wx + nx].lod = 32;
+					world.handle.handle[y * (wx * wz) + nz * wx + nx].filled = 1;
+				}
+				world.setLod[nx][nz] = lod;
+				free(gen.heightMap);
+			}
+		}
+		int r = 5;
+		for (auto const k : manager.voxelData) {
+			for (auto voxel : manager.voxelData[k.first]) {
+				
+#define SET_VOXEL(x, y, z, block) do { \
+					int _x = (x), _y = (y), _z = (z); \
+					if (_x >= 0 && _x < 32 && _z >= 0 && _z < 32 && _y >= 0 && _y < wy * 32) { \
+						ChunkData& _c = world.chunkData[(_y / 32) * (wx * wz) + (z/32) * wx + (x/32)]; \
+						if (!_c.skipped) { \
+							int _id = IDX(_x, _y % 32, _z, 32); \
+							uint8_t _v = (uint8_t)(block); \
+							if (_c.shortenedData) { \
+								if (_c.compressedTerrain) { \
+									if (_c.compressedTerrain[_id] == 0 && _v != 0) _c.voxelCount++; \
+									_c.compressedTerrain[_id] = _v; \
+								} \
+							} else if (_c.compressed) { \
+								uint8_t _cv = 0; \
+								for (int _i = 0; _i < _c.paletteSize; _i++) \
+									if (_c.palette[_i] == _v) { _cv = (uint8_t)(_i + 1); break; } \
+								if (_cv == 0 && _v != 0 && _c.paletteSize < 255) { \
+									_c.palette[_c.paletteSize] = _v; \
+									_cv = (uint8_t)(++_c.paletteSize); \
+								} \
+								if (_cv != 0 || _v == 0) { \
+									if (_c.compressedTerrain[_id] == 0 && _cv != 0) _c.voxelCount++; \
+									_c.compressedTerrain[_id] = _cv; \
+								} \
+							} else if (_c.terrain) { \
+								if (_c.terrain[_id] == 0 && _v != 0) _c.voxelCount++; \
+								_c.terrain[_id] = _v; \
+							} \
+						} \
+					} \
+				} while (0)
+
+				int nx = voxel.x + wx / 2;
+				int ny = voxel.y + r*16;
+				int nz = voxel.z + wz / 2;
+				SET_VOXEL(nx, ny, nz, 5);
+			}
+			r++;
+		}
+		
+#pragma omp for collapse(2)
+		for (int nx = 0; nx < wx; nx++) {
+			for (int nz = 0; nz < wz; nz++) {
+				GenerationData gen;
+				gen.GenerateMountains(nx, nz);
+				gen.highestChunkY += 3;
+				for (int y = gen.lowestChunkY; y < gen.highestChunkY && y < wy; y++) {
+					if (!world.chunkData[y * (wx * wz) + nz * wx + nx].skipped) {
+						if (!world.chunks[y * (wx * wz) + nz * wx + nx].generatedAtLod) world.chunks[y * (wx * wz) + nz * wx + nx].GenerateLod(&world.chunkData[y * (wx * wz) + nz * wx + nx], nx, y, nz);
+						if (!world.chunkData[y * (wx * wz) + nz * wx + nx].shortenedData) world.chunks[y * (wx * wz) + nz * wx + nx].Compress(&world.chunkData[y * (wx * wz) + nz * wx + nx]);
+					}
+
+				};
+
+			}
+		}
+		END_TIMER(data_gen)
+			START_TIMER(upload)
+			int maxCount = wx * wy * wz;
+
+		Anubis::GPUONLYByteMap** byteMapBatch = new Anubis::GPUONLYByteMap * [maxCount];
+		uint8_t** byteMapData = new uint8_t * [maxCount];
+		Math::IVector3* byteMapSizes = new Math::IVector3[maxCount];
+		int* byteMapChunkIds = new int[maxCount];
+		int byteMapCount = 0;
+
+		Anubis::GPUONLYShortMap** shortMapBatch = new Anubis::GPUONLYShortMap * [maxCount];
+		uint16_t** shortMapData = new uint16_t * [maxCount];
+		Math::IVector3* shortMapSizes = new Math::IVector3[maxCount];
+		int* shortMapChunkIds = new int[maxCount];
+		int shortMapCount = 0;
+
+		for (int nx = 0; nx < wx; nx++) {
+			for (int nz = 0; nz < wz; nz++) {
+				for (int ny = 0; ny < wy; ny++) {
+
+					int neighbourId = ny * (wx * wz) + nz * wx + nx;
+					if (world.chunks[neighbourId].lod == 0 || world.chunks[neighbourId].lod == 3000 || world.chunks[neighbourId].lod == 32) continue;
+
+					int size = chunkSize / world.chunks[neighbourId].lod;
+
+					if (world.chunkData[neighbourId].voxelCount != 0 &&
+						!world.chunkData[neighbourId].skipped &&
+						!(world.chunkData[neighbourId].voxelCount >= chunkSize * chunkSize * chunkSize)) {
+
+						world.chunkData[neighbourId].probeMap.Clear({ size,size,size });
+						world.chunkData[neighbourId].probeMap.Upload(0);
+						world.chunkData[neighbourId].probeMap.GetBindlessHandle();
+						world.handle.handle[neighbourId].lightStorageHandle = world.chunkData[neighbourId].probeMap.handle;
+
+						if (world.chunkData[neighbourId].shortenedData) {
+							auto& map = world.chunkData[neighbourId].fluidByteMap;
+							map.Clear({ size, size, size });
+
+							byteMapBatch[byteMapCount] = &map;
+							byteMapData[byteMapCount] = world.chunkData[neighbourId].compressedTerrain;
+							byteMapSizes[byteMapCount] = { size, size, size };
+							byteMapChunkIds[byteMapCount] = neighbourId;
+							byteMapCount++;
+						}
+						else {
+							auto& map = world.chunkData[neighbourId].fluidShortMap;
+							map.Clear({ size, size, size });
+
+							shortMapBatch[shortMapCount] = &map;
+							shortMapData[shortMapCount] = world.chunks[neighbourId].DecompressChunk(&world.chunkData[neighbourId]);
+							shortMapSizes[shortMapCount] = { size, size, size };
+							shortMapChunkIds[shortMapCount] = neighbourId;
+							shortMapCount++;
+						}
+					}
+				}
+			}
+		}
+
+		if (byteMapCount > 0) {
+			UploadByteMaps(byteMapBatch, byteMapData, byteMapSizes, byteMapCount);
+
+			for (int i = 0; i < byteMapCount; i++) {
+				byteMapBatch[i]->GetBindlessHandle();
+
+				int id = byteMapChunkIds[i];
+				world.handle.handle[id].handle = byteMapBatch[i]->handle;
+				world.handle.handle[id].lod = world.chunkData[id].lod;
+			}
+		}
+
+		if (shortMapCount > 0) {
+			UploadShortMaps(shortMapBatch, shortMapData, shortMapSizes, shortMapCount);
+
+			for (int i = 0; i < shortMapCount; i++) {
+				shortMapBatch[i]->GetBindlessHandle();
+
+				int id = shortMapChunkIds[i];
+				world.handle.handle[id].handle = shortMapBatch[i]->handle;
+				world.handle.handle[id].lod = world.chunkData[id].lod;
+
+				free(shortMapData[i]);
+			}
+		}
+
+		delete[] byteMapChunkIds;
+		delete[] shortMapChunkIds;
+		delete[] byteMapBatch;
+		delete[] shortMapBatch;
+		delete[] shortMapSizes;
+		delete[] byteMapSizes;
+		END_TIMER(upload)
+			shaders.display.UpdateSSBO(3, &world.handle, sizeof(world.handle), 0);
 		world.RecalculateParticlesFullDebug(&shaders);
 		PreCalculateMesh();
 	}
@@ -1599,5 +1791,6 @@ int main() {
 	
 	App* app = new App;
 	app->MainMenu();
+
 
 }

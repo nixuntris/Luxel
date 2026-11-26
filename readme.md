@@ -3,6 +3,7 @@ This is my voxel engine I call "luxel".
 It's meant to be a sandbox game, somewhat akin to what John Lin aimed for. The most up to date explanation of the technical details are up on: https://jankysoftware.org/ under voxel rasterizer. 
 The general idea is that it's an engine to learn and experiment with different techniques, it's a very messy as of now, and incomplete.
 Currently there are 2 primary renderers, raytracing and rasterization. The rasterizer is much more complete and more optimized. While the raytracer is much earlier in development.
+(Technically 3, since the water renderer is seperate)
 
 # Installation
 

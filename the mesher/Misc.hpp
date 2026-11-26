@@ -17,6 +17,92 @@ inline uint32_t packRGBA8(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 		(uint32_t(b) << 16) |
 		(uint32_t(a) << 24);
 }
+struct GPUHash {
+	Math::IVector3 key;
+	uint16_t value;
+};
+class GPUMap {
+	int size;
+	GPUHash* hash;
+public:
+	const static uint32_t hashValue(Math::IVector3 v) {
+		uint32_t x = v.x;
+		uint32_t y = v.y;
+		uint32_t z = v.z;
+
+		x *= 0x8da6b343u;
+		y *= 0xd8163841u;
+		z *= 0xcb1ab31fu;
+
+		uint32_t h = x ^ (y << 11) ^ (y >> 21) ^ (z << 22) ^ (z >> 10);
+
+		h ^= h >> 16;
+		h *= 0x85ebca6bu;
+		h ^= h >> 13;
+		h *= 0xc2b2ae35u;
+		h ^= h >> 16;
+
+		return h;
+	}
+	int leftOverIds = 0;
+	GPUMap(int size) {
+		this->size = size;
+		this->leftOverIds = size;
+		hash = (GPUHash*)MemAlloc(this->size * sizeof(GPUHash));
+		for (int i = 0; i < this->size; i++) {
+			hash[i].key = { -1,-1,-1 }; //wondering whether the taken flag I want value or key be
+			hash[i].value = 0;
+		}
+	}
+	void FetchValue(Math::IVector3 key) {
+
+	}
+	void SetValue(Math::IVector3 key, uint16_t value) {
+
+		int index = hashValue(key) % this->size;
+		for (int i = index; i < this->size; i++) {
+			if (this->hash[i].key.x == -1) {
+				this->hash[i].key = key;
+				this->leftOverIds -= 1;
+				this->hash[i].value = value;
+				return;
+			}
+			else if (this->hash[i].key.x == key.x && this->hash[i].key.y == key.y && this->hash[i].key.z == key.z) {
+				this->hash[i].value = value;
+				return;
+			}
+
+		}
+		//std::cout << "overfit "<<leftOverIds<<"\n";
+	}
+	~GPUMap() {
+		free(hash);
+	}
+	void TestGPUMap()
+	{
+		constexpr float voxelSize = 1.0f / 16.0f;
+
+		for (int i = 0; i < 2560 * 1440; i++)
+		{
+			Math::IVector3 pos = {
+				GetRandomValue(-100000, 100000),
+				GetRandomValue(-100000, 100000),
+				GetRandomValue(320, 4800)
+			};
+
+			uint16_t value = GetRandomValue(1, 65535);
+
+			Math::IVector3 voxel = {
+				pos.x,
+				pos.y,
+				pos.z
+			};
+
+			SetValue(voxel, value);
+		}
+	}
+};
+
 inline bool CustomToggle(const char* label, bool* value) {
 	ImVec2 pos = ImGui::GetCursorScreenPos();
 	ImVec2 size = ImVec2(32, 32);

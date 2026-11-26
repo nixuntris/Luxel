@@ -141,6 +141,7 @@
     <ClInclude Include="Anubis\AnubisMath.hpp" />
     <ClInclude Include="Anubis\AnubisShaders.hpp" />
     <ClInclude Include="Chunk.hpp" />
+    <ClInclude Include="MagicaVoxelFileParser.hpp" />
     <ClInclude Include="Misc.hpp" />
     <ClInclude Include="NoiseGen.hpp" />
     <ClInclude Include="ParticleManager.hpp" />

@@ -105,6 +105,9 @@
     <ClInclude Include="Viewport.hpp">
       <Filter>Source Files\CPU Code</Filter>
     </ClInclude>
+    <ClInclude Include="MagicaVoxelFileParser.hpp">
+      <Filter>Source Files\CPU Code</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="fes.fs">
