@@ -201,15 +201,15 @@ public:
 				if (ImGui::Button(resLabel.c_str(), ImVec2(-1, 0))) {
 					currentResolutionWindow = i;
 					window.Resize(graphicsSettings.resolutions[currentResolutionWindow].width, graphicsSettings.resolutions[currentResolutionWindow].height);
+				
+					resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
+					resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
 					shaders.display.DeleteSSBO(0);
 					shaders.display.DeleteSSBO(1);
 					shaders.display.DeleteSSBO(4);
 					shaders.display.CreateSSBO(0, sizeof(uint32_t) * resolution.width * resolution.height * 1);
 					shaders.display.CreateSSBO(1, sizeof(uint32_t) * resolution.width * resolution.height * 4);
 					shaders.display.CreateSSBO(4, sizeof(uint32_t) * resolution.width * resolution.height * 1);
-
-					resolution.width = graphicsSettings.resolutions[currentResolutionWindow].width;
-					resolution.height = graphicsSettings.resolutions[currentResolutionWindow].height;
 					matProj = MatrixPerspective(90 * DEG2RAD, ((double)resolution.width / (double)resolution.height), 0.1, 100000.0);
 				}
 

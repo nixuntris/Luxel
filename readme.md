@@ -20,19 +20,20 @@ It will not launch on nvidia cards, bindless textures have an odd behavior of ha
 It should launch on intel GPUs, but it's not thoroughly tested so bugs or crashes may occur, I develop on AMD hardware.
 
 # Requirements
-An x86 CPU with AVX2 instructions
-A modern GPU, must support opengl 4.6 with extensions (For now, an AMD GPU) with at least 4 gb of vram
-8GB of ram
-Installed Visual C++ Redistributable for Visual Studio 2015
+An x86 CPU with AVX2 instructions <br>
+A modern GPU, must support opengl 4.6 with extensions (For now, an AMD GPU) with at least 4 gb of vram <br>
+8GB of ram <br>
+Installed Visual C++ Redistributable for Visual Studio 2015 <br>
 
 # Dependencies
 
-I use vcpkg for dependencies.
-Raylib 5.5
-Opengl
-GLFW
-ImGui
-OpenMP
+I use vcpkg for dependencies. <br>
+Raylib 5.5 <br>
+Opengl <br>
+GLFW <br>
+ImGui <br>
+OpenMP <br>
+Pugixml <br>
 
 It's currently being developed by only me using opengl 4.6 with extensions.
 
@@ -44,8 +45,8 @@ VCPKG by default sets it up for x86 not x86-64
 
 
 # Controls
-WASD - for movement
-Mouse for controlling camera rotation
-Left and Right button for building and destruction
-K to enable the debug GUI, it allows to play around with different options
-Scroll wheel spawns physics entities
+WASD - for movement <br>
+Mouse for controlling camera rotation <br>
+Left and Right button for building and destruction <br>
+K to enable the debug GUI, it allows to play around with different options <br>
+Scroll wheel spawns physics entities <br>

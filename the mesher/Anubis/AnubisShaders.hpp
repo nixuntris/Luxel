@@ -700,20 +700,23 @@ namespace Anubis {
             inUsessbo[bufferIndex] = true;
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
         }
-        void DeleteSSBO(int bufferIndex)
-        {
-            if (bufferIndex < 0 || bufferIndex >= ssboIds.size() || bufferIndex >= inUsessbo.size())
-            {
+        void DeleteSSBO(int bufferIndex) {
+            if (bufferIndex < 0 || bufferIndex >= (int)ssboIds.size() || bufferIndex >= (int)inUsessbo.size()) {
                 std::cerr << "SSBO ERROR: bufferIndex out of bounds\n";
                 return;
             }
-
             GLuint id = ssboIds[bufferIndex];
-            if (id != 0)
-            {
+            if (id != 0) {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, bufferIndex, 0); 
+                if (ssboPointers[bufferIndex]) {
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, id);
+                    glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+                    ssboPointers[bufferIndex] = nullptr;
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+                }
                 glDeleteBuffers(1, &id);
-                ssboIds[bufferIndex] = 0;   // Clear stored ID
-                inUsessbo[bufferIndex] = false; // Mark as unused
+                ssboIds[bufferIndex] = 0;
+                inUsessbo[bufferIndex] = false;
             }
         }
         void UpdateSSBO(int bufferIndex, const void* data, size_t size, size_t startPoint=0)
